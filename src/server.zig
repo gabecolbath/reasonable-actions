@@ -31,25 +31,26 @@ const HttpHandler = struct {
     }
 };
 
-const app_opts = app.AppOptions{};
-
-const server_opts = httpz.Config{
-    .port = 3000,
-    .request = .{ .max_form_count = 5 },
-};
+const PORT = 3000;
 
 pub fn main() !void {
-    var running_application = App.init(std.heap.smp_allocator, app_opts);
+    var running_application: App = App.init(std.heap.smp_allocator, .{
+        .room = .{ .room_client_capacity = 8 },
+        .client = .{},
+    });
     defer running_application.deinit();
 
     const http_handler = HttpHandler{ .app = &running_application };
-    var server = try httpz.Server(HttpHandler).init(std.heap.smp_allocator, server_opts, http_handler);
+    var server = try httpz.Server(HttpHandler).init(std.heap.smp_allocator, .{
+        .port = PORT,
+        .request = .{ .max_form_count = 5 },
+    }, http_handler);
     defer server.deinit();
 
     // TODO setup router.
     const router = try server.router(.{});
     _ = router;
 
-    std.debug.print("Listening to http://localhost:{any}/\n", .{server_opts.port});
+    std.debug.print("Listening to http://localhost:{any}/\n", .{3000});
     try server.listen();
 }

@@ -16,6 +16,25 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    const httpz = b.dependency("httpz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const uuid = b.dependency("uuid", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const mustache = b.dependency("mustache", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport("httpz", httpz.module("httpz"));
+    exe.root_module.addImport("uuid", uuid.module("uuid"));
+    exe.root_module.addImport("mustache", mustache.module("mustache"));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

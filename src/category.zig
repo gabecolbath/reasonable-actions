@@ -1,8 +1,10 @@
 const std = @import("std");
 
+pub const Category = []const u8;
+pub const Answer = []const u8;
+
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const Category = []const u8;
 
 const categories_list_filepath: []const u8 = "categories/";
 const max_category_len: usize = 128 + 1;
@@ -31,13 +33,15 @@ pub fn readCategoryFiles(allocator: Allocator, list_names: []const []const u8) !
     return try data.toOwnedSlice();
 }
 
-pub fn createListOfCategories(allocator: Allocator, data: []const u8) ![]Category {
+pub fn toCategoryList(allocator: Allocator, buffer: []const u8) ![]Category {
     var list = ArrayList(Category).init(allocator);
-    var iterator = std.mem.splitAny(u8, data, '\n');
-    while (iterator.next()) |cat| {
-        try list.append(cat);
+    var cat_it = std.mem.splitAny(u8, buffer, "\n");
+    while (cat_it.next()) |cat| {
+        if (cat.len > 0) {
+            try list.append(cat);
+        }
     }
-
+    
     return try list.toOwnedSlice();
 }
 
@@ -55,8 +59,8 @@ pub fn chooseRandomCategories(allocator: Allocator, list: []Category, choose: us
 
     var shuffled = list;
     std.crypto.random.shuffle(Category, shuffled);
-    const rand_categories = shuffled[0..choose];
+    const random_categories = try allocator.alloc([]const u8, choose);
+    std.mem.copyBackwards([]const u8, random_categories, shuffled[0..choose]);
 
-    return try allocator.dupe(u8, rand_categories);
+    return random_categories;
 }
-

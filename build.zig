@@ -16,6 +16,19 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    const httpz = b.dependency("httpz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const uuid = b.dependency("uuid", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport("httpz", httpz.module("httpz")); 
+    exe.root_module.addImport("uuid", uuid.module("uuid"));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -35,9 +48,6 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
 }

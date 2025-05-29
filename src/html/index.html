@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Scatty</title>
+        <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    </head>
+    <body>
+        <form hx-post="/join" hx-swap="outerHTML">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name"><br>
+            <button type="submit">Join</button>
+        </form>
+    </body>
+</html>

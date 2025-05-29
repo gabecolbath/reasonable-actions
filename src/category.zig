@@ -1,16 +1,11 @@
 const std = @import("std");
+const conf = @import("config.zig");
 
 pub const Category = []const u8;
 pub const Answer = []const u8;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-
-const categories_list_filepath: []const u8 = "categories/";
-const max_category_len: usize = 128 + 1;
-const max_num_categories: usize = 256;
-const max_categories_list_size: usize = max_category_len * max_num_categories;
-const custom_categories_filepath: []const u8 = categories_list_filepath ++ "custom" ++ ".txt";
 
 pub fn readCategoryFiles(allocator: Allocator, list_names: []const []const u8) ![]const u8 {
     const cwd = std.fs.cwd();
@@ -19,7 +14,7 @@ pub fn readCategoryFiles(allocator: Allocator, list_names: []const []const u8) !
     var data = ArrayList(u8).init(allocator);
     for (list_names) |list_name| {
         const full_path = try std.fmt.bufPrint(&path_buffer, "{s}{s}.txt", .{
-            categories_list_filepath,
+            conf.categories_list_filepath,
             list_name,
         });
 
@@ -27,7 +22,7 @@ pub fn readCategoryFiles(allocator: Allocator, list_names: []const []const u8) !
         defer list_file.close();
 
         const reader = list_file.reader();
-        try reader.readAllArrayList(&data, max_categories_list_size);
+        try reader.readAllArrayList(&data, conf.max_categories_list_size);
     }
 
     return try data.toOwnedSlice();
@@ -47,7 +42,7 @@ pub fn toCategoryList(allocator: Allocator, buffer: []const u8) ![]Category {
 
 pub fn writeToCustomCategoriesFile(str: []const u8) !void {
     const cwd = std.fs.cwd();
-    const list_file = try cwd.openFile(custom_categories_filepath, .{ .mode = .write_only });
+    const list_file = try cwd.openFile(conf.custom_categories_filepath, .{ .mode = .write_only });
     defer list_file.close();
     
     const writer = list_file.writer();

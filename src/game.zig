@@ -1,6 +1,6 @@
 const std = @import("std");
 const cat = @import("category.zig");
-const conf = @import("game-config.zig");
+const conf = @import("config.zig");
 
 const random = std.crypto.random;
 
@@ -310,7 +310,7 @@ const State = struct {
 
 test "Generate A Game" {
     var game = try State.init(std.testing.allocator, .{
-        .general = .{ .same_categories_per_round = false },
+        .general = .{ .same_categories_per_round = true },
     });
     defer game.deinit();
     
@@ -335,7 +335,12 @@ test "Generate A Game" {
 
 test "Generate Votes" {
     var game = try State.init(std.testing.allocator, .{
-        .scoring = .{ .score_weighted_by_vote = true },
+        .general = .{
+            .same_categories_per_round = true,
+        }, 
+        .scoring = .{ 
+            .score_weighted_by_vote = false,
+        },
     });
     defer game.deinit();
 

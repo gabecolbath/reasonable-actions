@@ -291,15 +291,15 @@ test "Create A Room" {
     const app_control = Control{ .app_data = &app_data };
     defer app_data.deinit();
 
-    const new_room_id = try app_control.createRoom("Test Room", "Gabe");
-    try app_control.joinRoom("Michael", new_room_id);
-    try app_control.joinRoom("Kade", new_room_id);
-    try app_control.joinRoom("Daniel", new_room_id);
-    try app_control.joinRoom("Reese", new_room_id);
-    try app_control.joinRoom("Bobby", new_room_id);
-    try app_control.joinRoom("Sara", new_room_id);
+    const new_room_res = try app_control.createRoom("Test Room", "Gabe");
+    _ = try app_control.joinRoom("Michael", new_room_res.room_id);
+    _ = try app_control.joinRoom("Kade", new_room_res.room_id);
+    _ = try app_control.joinRoom("Daniel", new_room_res.room_id);
+    _ = try app_control.joinRoom("Reese", new_room_res.room_id);
+    _ = try app_control.joinRoom("Bobby", new_room_res.room_id);
+    _ = try app_control.joinRoom("Sara", new_room_res.room_id);
 
-    const room = app_data.rooms.get(new_room_id).?;
+    const room = app_data.rooms.get(new_room_res.room_id).?;
     room.print();
 }
 
@@ -311,15 +311,15 @@ test "Kick Players From a Room" {
     const app_control = Control{ .app_data = &app_data };
     defer app_data.deinit();
     
-    const new_room_id = try app_control.createRoom("Test Room", "Gabe");
-    try app_control.joinRoom("Michael", new_room_id);
-    try app_control.joinRoom("Kade", new_room_id);
-    try app_control.joinRoom("Daniel", new_room_id);
-    try app_control.joinRoom("Reese", new_room_id);
-    try app_control.joinRoom("Bobby", new_room_id);
-    try app_control.joinRoom("Sara", new_room_id);
+    const new_room_res = try app_control.createRoom("Test Room", "Gabe");
+    _ = try app_control.joinRoom("Michael", new_room_res.room_id);
+    _ = try app_control.joinRoom("Kade", new_room_res.room_id);
+    _ = try app_control.joinRoom("Daniel", new_room_res.room_id);
+    _ = try app_control.joinRoom("Reese", new_room_res.room_id);
+    _ = try app_control.joinRoom("Bobby", new_room_res.room_id);
+    _ = try app_control.joinRoom("Sara", new_room_res.room_id);
 
-    const room = app_data.rooms.getPtr(new_room_id).?;
+    const room = app_data.rooms.getPtr(new_room_res.room_id).?;
     room.print();
 
     const member_to_kick_id = try app_data.findMemberIdByName(.{
@@ -340,20 +340,20 @@ test "Close An Open Room" {
     const app_control = Control{ .app_data = &app_data };
     defer app_data.deinit();
 
-    const new_room_id = try app_control.createRoom("Test Room", "Gabe");
-    try app_control.joinRoom("Michael", new_room_id);
-    try app_control.joinRoom("Kade", new_room_id);
-    try app_control.joinRoom("Daniel", new_room_id);
-    try app_control.joinRoom("Reese", new_room_id);
-    try app_control.joinRoom("Bobby", new_room_id);
-    try app_control.joinRoom("Sara", new_room_id);
+    const new_room_res = try app_control.createRoom("Test Room", "Gabe");
+    _ = try app_control.joinRoom("Michael", new_room_res.room_id);
+    _ = try app_control.joinRoom("Kade", new_room_res.room_id);
+    _ = try app_control.joinRoom("Daniel", new_room_res.room_id);
+    _ = try app_control.joinRoom("Reese", new_room_res.room_id);
+    _ = try app_control.joinRoom("Bobby", new_room_res.room_id);
+    _ = try app_control.joinRoom("Sara", new_room_res.room_id);
 
-    const room = app_data.rooms.get(new_room_id).?;
+    const room = app_data.rooms.get(new_room_res.room_id).?;
     room.print();
 
-    try app_control.closeRoom(new_room_id);
+    try app_control.closeRoom(new_room_res.room_id);
     
-    const deleted_room = app_data.rooms.get(new_room_id);
+    const deleted_room = app_data.rooms.get(new_room_res.room_id);
     try std.testing.expectEqual(null, deleted_room);
 }
 
@@ -365,11 +365,11 @@ test "Create Multiple Rooms" {
     const app_control = Control{ .app_data = &app_data };
     defer app_data.deinit();
 
-    const new_room_id_1 = try app_control.createRoom("Gabe Room", "Gabe");
-    const new_room_id_2 = try app_control.createRoom("Sara Room", "Sara");
+    const new_room_res_1 = try app_control.createRoom("Gabe Room", "Gabe");
+    const new_room_res_2 = try app_control.createRoom("Sara Room", "Sara");
     
-    const new_room_1 = app_data.rooms.get(new_room_id_1).?;
-    const new_room_2 = app_data.rooms.get(new_room_id_2).?;
+    const new_room_1 = app_data.rooms.get(new_room_res_1.room_id).?;
+    const new_room_2 = app_data.rooms.get(new_room_res_2.room_id).?;
 
     new_room_1.print();
     new_room_2.print();

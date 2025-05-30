@@ -2,7 +2,7 @@ const std = @import("std");
 
 // Server
 pub const port = 8801;
-pub const index_view = @embedFile("html/index.html");
+pub const max_room_list_items = 50;
 
 // App
 pub const max_total_members = 100;

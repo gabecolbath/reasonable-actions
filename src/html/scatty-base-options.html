@@ -1,0 +1,52 @@
+<form id="options-form"
+      hx-post="/scatty/game/apply-options/{s}"
+      hx-swap="none">
+    <h1>Options</h1>
+
+    <div id="general-options">
+        <h3>General</h3>
+
+        <label for="num-categories">Categories</label>
+        <input id="num-categories" name="num-categories" type="number" value="{d}"><br>
+
+        <label for="num-rounds">Rounds</label>
+        <input id="num-rounds" name="num-rounds" type="number" value="{d}"><br>
+
+        <label for="repeat-categories">Repeat Categories</label>
+        <input id="repeat-categories" name="repeat-categories" type="checkbox" {s}><br>
+
+        <label for="lists">Lists</label>
+        <input id="lists" name="lists" type="text" value="{s}"><br>
+    </div>
+
+    <div id="answering-options">
+        <h3>Answering</h3>
+
+        <label for="time-limit">Time Limit (s)</label>
+        <input id="time-limit" name="time-limit" type="number" value="{d}"><br>
+
+        <label for="last-answer-bonus-time">Bonus Time</label>
+        <input id="enable-last-answer-bonus-time" name="enable-last-answer-bonus-time" type="checkbox" {s}>
+        <input id="last-answer-bonus-time" name="last-answer-bonus-time" type="number" value="{d}"><br>
+    </div>
+
+    <div id="voting-options">
+        <h3>Voting</h3>
+
+        <label for="vote-time-limit">Vote Time Limit (s)</label>
+        <input id="enable-vote-time-limit" name="enable-vote-time-limit" type="checkbox" {s}>
+        <input id="vote-time-limit" name="vote-time-limit" type="number" value="{d}"><br>
+
+        <label for="show-names">Show Names</label>
+        <input id="show-names" name="show-names" type="checkbox" {s}><br>
+
+    </div>
+
+    <div id="scoring-options">
+        <h3>Scoring</h3>
+        <label for="weigh-score">Score by Vote</label>
+        <input id="weigh-score" name="weigh-score" type="checkbox" {s}><br>
+    </div>
+
+    <button type="submit">Apply</button>
+</form>

@@ -8,6 +8,7 @@ const html = @import("html.zig");
 const server = @import("server.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList; 
 const Request = httpz.Request;
 const Response = httpz.Response;
 const AppHandler = server.AppHandler;
@@ -15,6 +16,10 @@ const AppHandler = server.AppHandler;
 const RequestError = error {
     InvalidParameter,  
     InvalidFormData, 
+};
+
+const ResponseError = error {
+    TemplateError,
 };
 
 pub fn @"/"(_: *AppHandler, _: *Request, res: *Response) !void {
@@ -108,4 +113,50 @@ pub fn @"/scatty/connect-room/:room_id/:member_id"(application: *AppHandler, req
         res.body = "Invalid Websocket Handshake";
         return;
     }
+}
+
+pub fn @"/scatty/game/base-options/:room_id"(_: *AppHandler, req: *Request, res: *Response) !void {
+    const req_room_urn = req.param("room_id") orelse {
+        return RequestError.InvalidParameter;
+    };
+    const base_opts = game.Options{};
+
+    var list_names_buffer = ArrayList(u8).init(res.arena);
+    for (base_opts.general.list_names) |name| {
+        try list_names_buffer.appendSlice(name);
+        try list_names_buffer.appendSlice(", ");
+    }
+    const list_names = try list_names_buffer.toOwnedSlice();
+
+    const template = html.scatty_base_options;
+    const res_writer = res.writer();
+    res_writer.print(template, .{
+        req_room_urn,
+        base_opts.general.num_categories,
+        base_opts.general.num_rounds,
+        if (base_opts.general.same_categories_per_round) "checked" else "",
+        list_names,
+        base_opts.answering.answering_time_limit,
+        if (base_opts.answering.bonus_time_for_last_answer != null) "checked" else "",
+        base_opts.answering.bonus_time_for_last_answer orelse 0,
+        if (base_opts.voting.vote_time_limit != null) "checked" else "",
+        base_opts.voting.vote_time_limit orelse 0,
+        if (base_opts.voting.show_names_in_vote) "checked" else "",
+        if (base_opts.scoring.score_weighted_by_vote) "checked" else "",
+    }) catch {
+        return ResponseError.TemplateError;
+    };
+}
+
+pub fn @"/scatty/game/apply-options/:room_id"(application: *AppHandler, req: *Request, res: *Response) !void {
+    _ = application;
+    
+    std.debug.print("Recieved: \n", .{});
+    const form_data = try req.formData();
+    var form_it = form_data.iterator();
+    while (form_it.next()) |kv| {
+        std.debug.print("\t{s} : {s}\n", .{kv.key, kv.value});
+    }
+
+    res.status = 200;
 }

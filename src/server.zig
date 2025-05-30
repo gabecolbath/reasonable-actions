@@ -6,6 +6,7 @@ const app = @import("app.zig");
 const uuid = @import("uuid");
 const routes = @import("routes.zig");
 const html = @import("html.zig");
+const ws_utils = @import("websocket.zig");
 
 const websocket = httpz.websocket;
 
@@ -52,14 +53,17 @@ pub const AppHandler = struct {
             const info = try room.info(allocator);
             defer allocator.free(info);
 
-            const response = try std.fmt.allocPrint(allocator, html.scatty_game, .{info});
+            const response = try std.fmt.allocPrint(allocator, html.scatty_game, .{
+                uuid.urn.serialize(room.id),
+                info,
+            });
             defer allocator.free(response);
             
             try client.conn.write(response); 
         }
 
         pub fn clientMessage(client: *WebsocketHandler, data: []const u8) !void {
-            try client.conn.write(data);
+            try ws_utils.handleClientMessage(client.application.allocator, client, data);
         }
 
         pub fn close(client: *WebsocketHandler) void {
@@ -118,6 +122,8 @@ pub fn start() !void {
     router.get("/scatty/join-room/:room_id", routes.@"/scatty/join-room/:room_id", .{});
     router.get("/scatty/enter-room/:room_id", routes.@"/scatty/enter-room/:room_id", .{});
     router.get("/scatty/connect-room/:room_id/:member_id", routes.@"/scatty/connect-room/:room_id/:member_id", .{});
+    router.get("/scatty/game/base-options/:room_id", routes.@"/scatty/game/base-options/:room_id", .{});
+    router.post("/scatty/game/apply-options/:room_id", routes.@"/scatty/game/apply-options/:room_id", .{});
 
     std.debug.print("Creating room..\n", .{});
     const kitty_room_result = try handler.controller.createRoom("KittyRoom", "Gabe");

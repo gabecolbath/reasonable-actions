@@ -124,19 +124,6 @@ pub const Room = struct {
             uuid.urn.serialize(self.id),
         });
 
-        for (self.member_ids.items) |id| {
-            const urn = uuid.urn.serialize(id);
-            const member = self.app_data.members.get(id) orelse {
-                try writer.print("\t??? [id : {s}]\n", .{urn});
-                continue;
-            };
-
-            try writer.print("\t", .{});
-            const member_str = try member.info(allocator);
-            try writer.print("{s}", .{member_str});
-            allocator.free(member_str);
-        }
-
         return try str.toOwnedSlice();
     }
 };

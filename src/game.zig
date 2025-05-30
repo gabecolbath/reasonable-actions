@@ -8,14 +8,14 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-const PlayerError = error {
+pub const PlayerError = error {
     AtPlayerCapacity,
     LastPlayerRemoved,
     PlayerNotFound,
     DuplicateName,
 };
 
-const Scene = enum {
+pub const Scene = enum {
     pregame,
     reviewing,
     answering,
@@ -23,7 +23,7 @@ const Scene = enum {
     winning,
 };
 
-const Options = struct {
+pub const Options = struct {
     general: GeneralOptions = .{},
     voting: VotingOptions = .{},
     answering: AnsweringOptions = .{},
@@ -39,7 +39,7 @@ const Options = struct {
     const AnsweringOptions = struct {
         pre_answering_review_time_limit: ?u8 = null,
         answering_time_limit: u16 = 120,
-        bonus_time_for_last_answer: bool = false,
+        bonus_time_for_last_answer: ?u8 = null,
     };
     
     const VotingOptions = struct {

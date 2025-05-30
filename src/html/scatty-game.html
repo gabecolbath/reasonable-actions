@@ -1,4 +1,19 @@
-<div id="game" hx-swap-oob="innerHTML">
-    <h1>Yayyy you did it!!</h1>
-    <p>{s}</p>
+<div id="game" hx-swap-oob="outerHTML">
+    <div id="lobby">
+        <div id="options"
+             hx-get="/scatty/game/base-options/{s}"
+             hx-target="#options"
+             hx-swap="innerHTML"
+             hx-trigger="load">
+        </div>
+    </div>
+</div>
+
+<div id="player-list" hx-swap-oob="outerHTML">
+    <h1>Players</h1>
+    <p>TODO</p>
+</div>
+
+<div id="room-info" hx-swap-oob="outerHTML">
+    {s}
 </div>

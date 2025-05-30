@@ -1,11 +1,16 @@
 <div id="scatty-room">
-    <div 
-        id="ws-connection"
-        hx-ext="ws"
-        ws-connect="/scatty/connect-room/{s}/{s}"
-    >
-        <div
-            id="game"
-        ></div>
+    <button id="leave-room"
+        hx-get="/scatty"
+        hx-swap="outerHTML"
+        hx-target="#scatty-room"
+        hx-replace-url="true">Leave</button>
+    <div id="ws-connection"
+         hx-ext="ws"
+         ws-connect="/scatty/connect-room/{s}/{s}">
+        <div id="game"></div>
+        <hr>
+        <div id="player-list"></div>
+        <hr>
+        <div id="room-info"></div>
     </div>
 </div>

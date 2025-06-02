@@ -44,6 +44,10 @@
             .url = "git+https://github.com/karlseguin/http.zig?ref=master#d02a1b80749e7bcf34f9b016992f2a9929d7c4ab",
             .hash = "httpz-0.0.0-PNVzrIy3BgAx-fYpwUmG1krFY8FLS2-ZcpuH_GtpBpAI",
         },
+        .mustache = .{
+            .url = "git+https://github.com/batiati/mustache-zig#cb205f571b0a676ee5f66e8bed383f4b98c63209",
+            .hash = "mustache-0.0.1-AAAAAICwCwBhaN2Ad6V2JfoAXv2jLMcSoUxVTu5XpoEs",
+        },
     },
     .paths = .{
         "build.zig",

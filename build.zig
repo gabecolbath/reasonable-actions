@@ -26,8 +26,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const mustache = b.dependency("mustache", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     exe.root_module.addImport("uuid", uuid.module("uuid"));
     exe.root_module.addImport("httpz", httpz.module("httpz"));
+    exe.root_module.addImport("mustache", mustache.module("mustache"));
 
     b.installArtifact(exe);
 
@@ -42,12 +48,18 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
+    const test_step = b.step("test", "Run unit tests");
+    
+    const server_test = b.addTest(.{
+        .root_source_file = b.path("src/server.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+    server_test.root_module.addImport("httpz", httpz.module("httpz"));
+    server_test.root_module.addImport("uuid", uuid.module("uuid"));
 
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
+    const run_server_tests = b.addRunArtifact(server_test);
+
+    test_step.dependOn(&run_server_tests.step);
 }

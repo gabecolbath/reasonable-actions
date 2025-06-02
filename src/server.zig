@@ -1,142 +1,159 @@
 const std = @import("std");
 const httpz = @import("httpz");
-const game = @import("game.zig");
-const conf = @import("config.zig");
-const app = @import("app.zig");
 const uuid = @import("uuid");
-const routes = @import("routes.zig");
-const html = @import("html.zig");
-const ws_utils = @import("websocket.zig");
+const conf = @import("config.zig");
 
 const websocket = httpz.websocket;
 
 const Allocator = std.mem.Allocator;
-const Request = httpz.Request;
-const Response = httpz.Response;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const Uuid = uuid.Uuid;
+const Urn = uuid.urn.Urn;
 
-pub const AppHandler = struct {
+const ConnectionError = error {
+    RoomAtMemberCapacity,
+    ServerAtMemberCapacity,
+    ServerAtRoomCapacity,
+    RoomNotFound, 
+    MemberNotFound,
+};
+
+pub const Application = struct {
     allocator: Allocator,
-    data: *app.Data,
-    controller: app.Control,
+    meta_data_arena: ArenaAllocator,
+    rooms: RoomMap = RoomMap.empty,
+    members: MemberMap = MemberMap.empty,
+    connections: ConnectionMap = ConnectionMap.empty,
 
     const Self = @This();
-    pub const WebsocketContext = struct {
-        application: *AppHandler,
-        member_id: Uuid,
-        room_id: Uuid,
-    };
-    pub const WebsocketHandler = struct {
+    const RoomMap = std.AutoHashMapUnmanaged(RoomId, Room);
+    const MemberMap = std.AutoHashMapUnmanaged(MemberId, Member);
+    const ConnectionMap = std.AutoHashMapUnmanaged(MemberId, Application.Connection);
+    const MemberId = Uuid;
+    const RoomId = Uuid;
+
+    const Connection = struct {
         conn: *websocket.Conn,
-        application: *AppHandler,
-        ids: struct {
-            member: Uuid,  
-            room: Uuid,
-        },
-
-        pub fn init(conn: *websocket.Conn, ctx: *const WebsocketContext) !WebsocketHandler {
-            return WebsocketHandler{
-                .conn = conn,
-                .application = ctx.application,
-                .ids = .{
-                    .member = ctx.member_id,
-                    .room = ctx.room_id,
-                },
-            };
-        }
-
-        pub fn afterInit(client : *WebsocketHandler) !void {
-            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-            const allocator = gpa.allocator();
-
-            const room = client.application.data.rooms.get(client.ids.room).?;
-            const info = try room.info(allocator);
-            defer allocator.free(info);
-
-            const response = try std.fmt.allocPrint(allocator, html.scatty_game, .{
-                uuid.urn.serialize(room.id),
-                info,
-            });
-            defer allocator.free(response);
-            
-            try client.conn.write(response); 
-        }
-
-        pub fn clientMessage(client: *WebsocketHandler, data: []const u8) !void {
-            try ws_utils.handleClientMessage(client.application.allocator, client, data);
-        }
-
-        pub fn close(client: *WebsocketHandler) void {
-            client.application.controller.leaveRoom(client.ids.room, client.ids.member) catch return;
-        }
+        app: *Application,
+        member_id: MemberId,
+        room_id: RoomId,
     };
+
+    pub const Member = struct {
+        uid: MemberId,
+        name: []const u8,
+    };
+
+    pub const Room = struct {
+        uid: RoomId,
+        name: []const u8,
+        member_buffer: []Member,
+        member_list: MemberList,
+
+        const MemberList = std.ArrayListUnmanaged(Member);
+    };
+
 
     pub fn init(allocator: Allocator) !Self {
-        const data_ptr = try allocator.create(app.Data);
-        data_ptr.* = app.Data.init(allocator);
-        return Self{
+        const self = &Self{ 
             .allocator = allocator,
-            .data = data_ptr,
-            .controller = app.Control{ .app_data = data_ptr },
+            .meta_data_arena = ArenaAllocator.init(allocator),
         };
+        
+        try self.rooms.ensureTotalCapacity(allocator, conf.num_rooms_capacity);
+        try self.members.ensureTotalCapacity(allocator, conf.num_members_capacity);
+        try self.connections.ensureTotalCapacity(allocator, conf.num_members_capacity);
+        
+        return self.*;
     }
 
     pub fn deinit(self: *Self) void {
-        self.data.deinit(); 
-        self.allocator.destroy(self.data);
+        self.rooms.deinit(self.allocator);
+        self.members.deinit(self.allocator);
     }
 
-    pub fn notFound(_: *Self, _: *Request, res: *Response) !void {
-        res.status = 404;
-        res.body = "Error: Not Found";
+    pub fn newRoom(self: *Self, name: []const u8) !*Room {
+        if (self.rooms.count() >= conf.num_rooms_capacity)
+            return ConnectionError.ServerAtRoomCapacity;
+
+        const meta_data_allocator = self.meta_data_arena.allocator();
+
+        const generated_uid = uuid.v7.new();
+        const room_meta_data = .{
+            .name = try meta_data_allocator.dupe(name),
+            .member_buffer = try meta_data_allocator.alloc(Member, conf.num_members_per_room_capacity),
+        };
+
+        const result = self.rooms.getOrPutAssumeCapacity(generated_uid);
+        result.value_ptr.* = .{
+            .name = room_meta_data.name,
+            .member_buffer = room_meta_data.member_buffer,
+            .member_list = Room.MemberList.initBuffer(room_meta_data.member_buffer),
+            .uid = generated_uid,
+        };
+
+        return result.value_ptr;
     }
 
-    pub fn uncaughtError(_: *Self, req: *Request, res: *Response, err: anyerror) void {
-        std.debug.print("Uncaught http error at {s}: {}\n", .{ req.url.path, err });
+    pub fn newMember(self: *Self, name: []const u8) !*Member {
+        if (self.members.count() >= conf.num_members_capacity)
+            return ConnectionError.ServerAtMemberCapacity;
+
+        const meta_data_allocator = self.meta_data_arena.allocator();
+
+        const generated_uid = uuid.v7.new();
+        const member_meta_data = .{
+            .name = try meta_data_allocator.dupe(name),
+        };
+
+        const result = self.members.getOrPutAssumeCapacity(generated_uid);
+        result.value_ptr.* = .{
+            .name = member_meta_data.name,
+            .uid = generated_uid,
+        };
+
+        return result.value_ptr; 
+    }
+
+    pub fn joinRoom(self: *Self, conn: *websocket.Conn, member_name: []const u8, room_id: RoomId) !*Connection {
+        const room_to_join = self.rooms.getPtr(room_id) orelse
+            ConnectionError.RoomNotFound;
+        if (room_to_join.member_list.items.len >= conf.num_members_per_room_capacity)
+            ConnectionError.RoomAtMemberCapacity;
         
-        res.status = 505;
-        res.body = "Error: Server Error";
+        const new_member = try self.newMember(member_name);
+        room_to_join.member_list.appendAssumeCapacity(new_member.*);
+
+        const result = self.connections.getOrPutAssumeCapacity(new_member.uid);
+        result.value_ptr.* = .{
+            .conn = conn,
+            .app = self,
+            .member_id = new_member.uid,
+            .room_id = room_id,
+        };
+
+        return result;
+    }
+
+    pub fn createRoom(self: *Self, conn: *websocket.Conn, host_name: []const u8, room_name: []const u8) !*Connection {
+        const new_room = try self.newRoom(room_name);
+        const new_member = try self.newMember(host_name);
+        new_room.member_list.appendAssumeCapacity(new_member.*);
+
+        const result = self.connections.getOrPutAssumeCapacity(new_member.uid);
+        result.value_ptr.* = .{
+            .conn = conn,
+            .app = self,
+            .member_id = new_member.uid,
+            .room_id = new_room.uid,
+        };
+
+        return result;
     }
 };
 
+
 pub fn start() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-
-    var handler = try AppHandler.init(allocator);
-    defer handler.deinit();
-
-    var server = try httpz.Server(*AppHandler).init(allocator, .{
-        .port = conf.port,
-        .request = .{
-            .max_form_count = 20,
-        },
-    }, &handler);
-    defer server.deinit();
-    defer server.stop();
     
-    var router = try server.router(.{});
-    router.get("/", routes.@"/", .{});
-    router.get("/scatty", routes.@"/scatty", .{});
-    router.get("/scatty/room-list", routes.@"/scatty/room-list", .{});
-    router.get("/scatty/join-room/:room_id", routes.@"/scatty/join-room/:room_id", .{});
-    router.get("/scatty/enter-room/:room_id", routes.@"/scatty/enter-room/:room_id", .{});
-    router.get("/scatty/connect-room/:room_id/:member_id", routes.@"/scatty/connect-room/:room_id/:member_id", .{});
-    router.get("/scatty/game/base-options/:room_id", routes.@"/scatty/game/base-options/:room_id", .{});
-    router.post("/scatty/game/apply-options/:room_id", routes.@"/scatty/game/apply-options/:room_id", .{});
-
-    std.debug.print("Creating room..\n", .{});
-    const kitty_room_result = try handler.controller.createRoom("KittyRoom", "Gabe");
-    const kitty_room = handler.data.rooms.get(kitty_room_result.room_id).?;
-    kitty_room.print();
-
-    std.debug.print("Creating room..\n", .{});
-    const peggy_room_result = try handler.controller.createRoom("PeggyRoom", "Sara");
-    const peggy_room = handler.data.rooms.get(peggy_room_result.room_id).?;
-    peggy_room.print();
-
-    std.debug.print("Listening http://localhost:{d}/\n", .{conf.port});
-
-    try server.listen();
 }
-

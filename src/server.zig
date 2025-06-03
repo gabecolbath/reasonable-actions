@@ -24,6 +24,7 @@ pub const ConnectionError = error {
     FailedCreatingNewMember,
     FailedCreatingNewRoom,
     FailedConnectingMemberToRoom,
+    MissingConnection,
 };
 
 pub const Application = struct {
@@ -39,25 +40,60 @@ pub const Application = struct {
     const ConnectionMap = std.AutoHashMapUnmanaged(MemberId, Application.Connection);
     const MemberId = Uuid;
     const RoomId = Uuid;
+    pub const WebsocketHandler = Connection;
 
-    const Connection = struct {
+    pub const Connection = struct {
         conn: ?*websocket.Conn = null,
         app: *Application,
         member_id: MemberId,
         room_id: RoomId,
 
-        pub fn printJoinMessage(self: *const Connection) void {
-            const member = self.app.members.get(self.member_id) orelse {
-                std.debug.print("Error.", .{});
-                return;
-            };
-            const room = self.app.rooms.get(self.room_id) orelse {
-                std.debug.print("Error.", .{});
-                return;
-            };
+        pub const Context = struct {
+            app: *Application,
+            member_id: MemberId,
+        };
+
+        pub fn init(conn: *websocket.Conn, ctx: *const Context) !Connection {
+            const established_connection = ctx.app.connections.getPtr(ctx.member_id) orelse
+                return ConnectionError.FailedConnectingMemberToRoom;
+            if (established_connection.conn) |present_conn| try present_conn.close(.{});
+            established_connection.conn = conn;
             
-            std.debug.print("[member : {s}] joined [room : {s}]", .{ member.name, room.name });
+            return established_connection.*;
+        }
+
+        pub fn afterInit(self: *Connection) !void {
+            self.printConnectionMessage();
+
+            try routes.onWebsocketConnect(self);    
+        }
+
+        pub fn clientMessage(self: *Connection, data: []const u8) !void {
+            try routes.handleWebsocketMessage(self, data);
+        }
+
+        pub fn close(self: *Connection) void {
+            self.printDisconnectionMessage();
+            self.app.disconnect(self.member_id);
+        }
+
+        pub fn printConnectionMessage(self: *const Connection) void {
+            const member = self.app.members.get(self.member_id) orelse return;
+            const room = self.app.rooms.get(self.room_id) orelse return;
+            
+            std.debug.print("[member : {s}] joined [room : {s}]\n", .{ member.name, room.name });
             std.debug.print("\t[{s} -> {s}]\n", .{
+                uuid.urn.serialize(member.uid),
+                uuid.urn.serialize(room.uid),
+            });
+        }
+
+        pub fn printDisconnectionMessage(self: *const Connection) void {
+            const member = self.app.members.get(self.member_id) orelse return;
+            const room = self.app.rooms.get(self.room_id) orelse return;
+        
+            std.debug.print("[member : {s}] disconnected from [room : {s}]\n", .{ member.name, room.name });
+            std.debug.print("\t[{s} X {s}]\n", .{
                 uuid.urn.serialize(member.uid),
                 uuid.urn.serialize(room.uid),
             });
@@ -264,7 +300,7 @@ pub const Application = struct {
         
         const new_member = try self.newMember(member_name);
 
-        return try self.connect(new_member, room_id);
+        return try self.connect(new_member.uid, room_id);
     }
 
     pub fn createRoom(self: *Self, room_name: []const u8, host_name: []const u8) !Connection {
@@ -281,13 +317,9 @@ pub const Application = struct {
         };
     }
 
-    pub fn disconnect(self: *Self, member_id: MemberId) !void {
-        const connection = (self.connections.fetchRemove(member_id) orelse {
-            return ConnectionError.MemberNotFound;
-        }).value;
-        const room = self.rooms.getPtr(connection.room_id) orelse {
-            return ConnectionError.RoomNotFound;
-        };
+    pub fn disconnect(self: *Self, member_id: MemberId) void {
+        const connection = (self.connections.fetchRemove(member_id) orelse return).value;
+        const room = self.rooms.getPtr(connection.room_id) orelse return;
 
         room.removeById(member_id);
 

@@ -31,18 +31,21 @@ pub const map = RouteMapByMethod{
         .{ "/scatty/rooms", @"/scatty/rooms" },
         .{ "/scatty/rooms/list", @"/scatty/rooms/list" },
         .{ "/scatty/rooms/create", @"/scatty/rooms/create" },
-        .{ "/scatty/room/join/:room_urn", @"/scatty/room/join/:room_urn" },
-        .{ "/scatty/room/enter/:room_urn", @"/scatty/room/enter/:room_urn" },
+        .{ "/scatty/rooms/join/:room_urn", @"/scatty/rooms/join/:room_urn" },
+        .{ "/scatty/room/enter/:member_urn", @"/scatty/room/enter/:member_urn" },
+        .{ "/scatty/room/connect/:member_urn", @"/scatty/room/connect/:member_urn" },
     }),
     .post = RouteMap.initComptime(.{
         .{ "/scatty/room/create", @"/scatty/room/create" },
+        .{ "/scatty/room/join/:room_urn", @"/scatty/room/join/:room_urn" },
     }),
 };
 
-const index: Html = @embedFile("html/index.html");
+const index_html: Html = @embedFile("html/index.html");
+const room_html: Html = @embedFile("html/room.html");
 
 pub fn @"/"(_: *Application, _: *Request, res: *Response) !void {
-    res.body = index;
+    res.body = index_html;
 }
 
 pub fn @"/games"(_: *Application, _: *Request, res: *Response) !void {
@@ -68,7 +71,8 @@ pub fn @"/scatty/rooms"(_: *Application, _: *Request, res: *Response) !void {
         \\<button id="create-room-button"
         \\      hx-get="/scatty/rooms/create"
         \\      hx-target="#scatty-rooms"
-        \\      hx-swap="outerHTML">
+        \\      hx-swap="outerHTML"
+        \\      hx-replace-url="/scatty/rooms/create">
         \\      Create Room
         \\</button>
         \\<div id="scatty-rooms-list"
@@ -85,11 +89,11 @@ pub fn @"/scatty/rooms"(_: *Application, _: *Request, res: *Response) !void {
 
 pub fn @"/scatty/rooms/list"(app: *Application, _: *Request, res: *Response) !void {
     const template: []const u8 = 
-        \\<a href="/scatty/room/join/{{room_urn}}"
-        \\      hx-get="/scatty/room/join/{{room_urn}}"
+        \\<a href="/scatty/rooms/join/{{room_urn}}"
+        \\      hx-get="/scatty/rooms/join/{{room_urn}}"
         \\      hx-target="#scatty-rooms"
         \\      hx-swap="outerHTML"
-        \\      hx-replace-url="/scatty/rooms/{{room_name}}/join">
+        \\      hx-replace-url="/scatty/rooms/join/{{room_name}}">
         \\      {{room_name}}
         \\</a>
         \\<br>
@@ -137,10 +141,41 @@ pub fn @"/scatty/rooms/create"(_: *Application, _: *Request, res: *Response) !vo
     res.body = html;
 }
 
+pub fn @"/scatty/rooms/join/:room_urn"(_: *Application, req: *Request, res: *Response) !void {
+    const template =
+        \\<div id="room-join">
+        \\<a href="/scatty/rooms"
+        \\      hx-get="/scatty/rooms"
+        \\      hx-target="#room-join"
+        \\      hx-swap="outerHTML"
+        \\      hx-push-url="true">
+        \\      Back To List
+        \\</a>
+        \\<form id="room-join-form"
+        \\      hx-post="/scatty/room/join/{{room_urn}}"
+        \\      hx-target="#room-join"
+        \\      hx-swap="outerHTML">
+        \\      <label for="name">Name</label>
+        \\      <input id="name-input" name="name" type="text"><br>
+        \\      <button id="join-button" type="submit">Enter</button>
+        \\</form>
+        \\</div>
+    ;
+    
+    const req_room_urn = req.param("room_urn") orelse
+        return RequestError.InvalidParameter;
+
+    const data = .{
+        .room_urn = req_room_urn,
+    };
+    
+    res.body = try mustache.allocRenderText(res.arena, template, data);
+}
+
 pub fn @"/scatty/room/create"(app: *Application, req: *Request, res: *Response) !void {
     const template = 
         \\<div id="room-enter"
-        \\      hx-get="/scatty/room/enter/{{room_urn}}"
+        \\      hx-get="/scatty/room/enter/{{member_urn}}"
         \\      hx-trigger="load"
         \\      hx-target="#room-enter"
         \\      hx-swap="outerHTML"
@@ -153,50 +188,44 @@ pub fn @"/scatty/room/create"(app: *Application, req: *Request, res: *Response) 
     const req_room_name = form_data.get("room-name") orelse return RequestError.InvalidFormData;
     
     const connection_result = try app.createRoom(req_room_name, req_member_name);
-    std.debug.print("[member : {s}] created [room : {s}]\n", .{ req_member_name, req_room_name });
-
-    connection_result.printJoinMessage();
     
     const data = .{
-        .room_urn = uuid.urn.serialize(connection_result.room_id),
+        .member_urn = uuid.urn.serialize(connection_result.member_id),
         .room_name = req_room_name,
     };
 
     res.body = try mustache.allocRenderText(res.arena, template, data);
 }
 
-pub fn @"/scatty/room/join/:room_urn"(_: *Application, req: *Request, res: *Response) !void {
-    const template =
-        \\<div id="room-join">
-        \\<a href="/scatty/rooms"
-        \\      hx-get="/scatty/rooms"
-        \\      hx-target="#room-join"
-        \\      hx-swap="outerHTML"
-        \\      hx-push-url="true">
-        \\      Back To List
-        \\</a>
-        \\<form id="room-join-form"
-        \\      hx-get="/scatty/room/enter/{{room_urn}}"
-        \\      hx-target="#room-join"
+pub fn @"/scatty/room/join/:room_urn"(app: *Application, req: *Request, res: *Response) !void {
+    const template = 
+        \\<div id="room-enter"
+        \\      hx-get="/scatty/room/enter/{{member_urn}}"
+        \\      hx-trigger="load"
+        \\      hx-target="#room-enter"
         \\      hx-swap="outerHTML"
         \\      hx-replace-url="/scatty/room/{{room_name}}">
-        \\      <label for="name">Name</label>
-        \\      <input id="name-input" name="name" type="text"><br>
-        \\      <button id="join-button" type="submit">Enter</button>
-        \\</form>
         \\</div>
     ;
 
-    const req_room_urn = req.param("room_urn") orelse
-        return RequestError.InvalidParameter;
-    const data = .{
-        .room_urn = req_room_urn, 
-    };
+    const form_data = try req.formData();
+    const req_member_name = form_data.get("name") orelse return RequestError.InvalidFormData;
     
+    const req_room_urn = req.param("room_urn") orelse return RequestError.InvalidParameter;
+    const req_room_id = try uuid.urn.deserialize(req_room_urn);
+    const req_room = app.rooms.get(req_room_id) orelse return server.ConnectionError.RoomNotFound;
+    
+    const connection_result = try app.joinRoom(req_member_name, req_room_id);
+    
+    const data = .{
+        .member_urn = uuid.urn.serialize(connection_result.member_id),
+        .room_name = req_room.name,
+    };
+
     res.body = try mustache.allocRenderText(res.arena, template, data);
 }
 
-pub fn @"/scatty/room/enter/:room_urn"(_: *Application, req: *Request, res: *Response) !void {
+pub fn @"/scatty/room/enter/:member_urn"(_: *Application, req: *Request, res: *Response) !void {
     const template = 
         \\<div id="room" hx-ext="ws">
         \\<button id="leave-button"
@@ -207,7 +236,7 @@ pub fn @"/scatty/room/enter/:room_urn"(_: *Application, req: *Request, res: *Res
         \\      Leave
         \\</button>
         \\<div id="websocket"
-        \\      ws-connect="/scatty/room/connect/{{room_urn}}">
+        \\      ws-connect="/scatty/room/connect/{{member_urn}}">
         \\      <div id="game">Test Game</div>
         \\      <hr>
         \\      <div id="player-list">Test Player List</div>
@@ -217,16 +246,39 @@ pub fn @"/scatty/room/enter/:room_urn"(_: *Application, req: *Request, res: *Res
         \\</div>
     ;
 
-    const req_room_urn = req.param("room_urn") orelse
-        return RequestError.InvalidParameter;
+    const req_member_urn = req.param("member_urn") orelse return RequestError.InvalidParameter;
+
     const data = .{
-        .room_urn = req_room_urn,
+        .member_urn = req_member_urn,
     };
 
     res.body = try mustache.allocRenderText(res.arena, template, data);
 }
 
-pub fn @"/scatty/room/connect/:room_urn"(_: *Application, req: *Request, res: *Response) !void {
-    _ = req;
-    _ = res;
+pub fn @"/scatty/room/connect/:member_urn"(app: *Application, req: *Request, res: *Response) !void {
+    const req_member_urn = req.param("member_urn") orelse
+        return RequestError.InvalidParameter;
+    const req_member_id = try uuid.urn.deserialize(req_member_urn);
+    
+    const ctx = server.Application.Connection.Context{
+        .app = app,
+        .member_id = req_member_id,
+    };
+
+    if (try httpz.upgradeWebsocket(Application.Connection, req, res, &ctx) == false) {
+        res.status = 500;
+        res.body = "Invalid Websocket Connection.";
+    }
+}
+
+pub fn onWebsocketConnect(client: *server.Application.Connection) !void {
+    if (client.conn) |conn| {
+        try conn.write(room_html);
+    } else return server.ConnectionError.MissingConnection;
+}
+
+pub fn handleWebsocketMessage(client: *server.Application.Connection, data: []const u8) !void {
+    if (client.conn) |conn| {
+        try conn.write(data);
+    } else return server.ConnectionError.MissingConnection;
 }

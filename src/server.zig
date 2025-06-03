@@ -2,6 +2,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const uuid = @import("uuid");
 const conf = @import("config.zig");
+const routes = @import("routes.zig");
 
 const websocket = httpz.websocket;
 
@@ -9,6 +10,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList; 
 const ArenaAllocator = std.heap.ArenaAllocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const Request = httpz.Request;
+const Response = httpz.Response;
 const Uuid = uuid.Uuid;
 const Urn = uuid.urn.Urn;
 
@@ -120,6 +123,20 @@ pub const Application = struct {
         self.rooms.deinit(self.allocator);
         self.members.deinit(self.allocator);
         self.connections.deinit(self.allocator);
+    }
+
+    pub fn notFound(_: *Self, _: *Request, res: *Response) !void {
+        res.status = 404;
+        res.body = "Error: Not Found";
+    }
+
+    pub fn uncaughtError(_: *Self, _: *Request, res: *Response, err: anyerror) void {
+        res.status = 505;
+        
+        const res_writer = res.writer();
+        res_writer.print("Error: Internal Server Error\n{}", .{err}) catch {
+            res.body = "Error: Internal Server Error\n???";
+        };
     }
 
     pub fn newRoom(self: *Self, name: []const u8) !*Room {
@@ -260,7 +277,34 @@ pub const Application = struct {
 
 
 pub fn start() !void {
+    var gpa = GeneralPurposeAllocator(.{}){};
+    const server_allocator = gpa.allocator();
+
+    var app = try Application.init(server_allocator);
     
+    var server = try httpz.Server(*Application).init(server_allocator, .{
+        .port = conf.port,
+        .request = .{ 
+            .max_form_count = 20,
+        },
+    }, &app);
+    defer server.deinit();
+    defer server.stop();
+    
+    var router = try server.router(.{});
+    for (routes.map.get.keys(), routes.map.get.values()) |path, action| 
+        router.get(path, action, .{});
+    for (routes.map.post.keys(), routes.map.post.values()) |path, action| 
+        router.post(path, action, .{}); 
+
+    try createDummyRooms(&app);
+
+    try server.listen();
+}
+
+fn createDummyRooms(app: *Application) !void {
+    _ = try app.newRoom("PeggyRoom");
+    _ = try app.newRoom("KittyRoom");
 }
 
 fn printTestTitle(name: []const u8, index: usize) void {

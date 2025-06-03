@@ -8,15 +8,12 @@
 
     </head>
     <body hx-ext="ws">
-        <div id="games-list">
-            <h1>Games</h1>
-            <a 
-                href="/scatty"
-                hx-get="/scatty" 
+        <div id="index"
+                hx-get="/games" 
+                hx-trigger="load"
                 hx-swap="outerHTML" 
-                hx-target="#games-list"
-                hx-push-url="true"
-            >Scatty</a>
+                hx-target="#index"
+                hx-push-url="true">
         </div>
     </body>
 </html>

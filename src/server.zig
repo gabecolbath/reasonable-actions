@@ -3,6 +3,7 @@ const httpz = @import("httpz");
 const uuid = @import("uuid");
 const conf = @import("config.zig");
 const routes = @import("routes.zig");
+const cmd = @import("command.zig");
 
 const websocket = httpz.websocket;
 
@@ -65,11 +66,16 @@ pub const Application = struct {
         pub fn afterInit(self: *Connection) !void {
             self.printConnectionMessage();
 
-            try routes.onWebsocketConnect(self);    
+            try cmd.onWebsocketConnect(self);    
         }
 
         pub fn clientMessage(self: *Connection, data: []const u8) !void {
-            try routes.handleWebsocketMessage(self, data);
+            const allocator = self.app.allocator;
+            var arena_wrapper = ArenaAllocator.init(allocator);
+            defer arena_wrapper.deinit();
+
+            const arena = arena_wrapper.allocator();
+            try cmd.handleWebsocketMessage(arena, self, data);
         }
 
         pub fn close(self: *Connection) void {

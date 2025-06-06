@@ -1,11 +1,18 @@
 <div id="game"
-    hx-swap-oob="outerHTML">
-    Gamsies Here!!
+    <div id="lobby">
+        <div id="options"
+            hx-get="/games/scatty/lobby/default-options"
+            hx-trigger="load"
+            hx-target="#options"
+            hx-swap="outerHTML">
+        </div>
+    </div>
 </div>
 
 <div id="player-list"
-    hx-swap-oob="outerHTML">
-    Player Listies Here!!
+    hx-swap-oob="outerHTML"
+    hx-get="/games/scatty/player-list/{{room_urn}}"
+    hx-trigger="load">
 </div>
 
 <div id="room-info"

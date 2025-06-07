@@ -1,21 +1,32 @@
-<div id="game"
-    <div id="lobby">
-        <div id="options"
-            hx-get="/games/scatty/lobby/default-options"
-            hx-trigger="load"
-            hx-target="#options"
-            hx-swap="outerHTML">
-        </div>
+<div id="game-container"
+    hx-target="#game-container"
+    hx-swap-oob="outerHTML">
+    <h3>Scatty</h3>
+    <div id="lobby-container"
+        hx-vals='{"cmd": "gameLobby"}'
+        hx-trigger="load"
+        ws-send>
     </div>
 </div>
 
-<div id="player-list"
-    hx-swap-oob="outerHTML"
-    hx-get="/games/scatty/player-list/{{room_urn}}"
-    hx-trigger="load">
+<div id="player-list-container"
+    hx-target="#player-list-container"
+    hx-swap-oob="outerHMTL">
+    <h3>Players</h3>
+    <div id="player-list-items-container"
+        hx-vals='{"cmd": "playerList"}'
+        hx-trigger="load"
+        hx-swap="beforeend"
+        ws-send>
+        <div id="player-list-item"></div>
+    </div>
 </div>
 
-<div id="room-info"
-    hx-swap hx-swap-oob="outerHTML">
-    Room Infosies Here!!
+<div id="room-info-container"
+    hx-target="#room-info-container"
+    hx-swap-oob="outerHTML"
+    hx-vals='{"cmd": "roomInfo"}'
+    hx-trigger="load"
+    ws-send>
+    <h3>Room</h3>
 </div>

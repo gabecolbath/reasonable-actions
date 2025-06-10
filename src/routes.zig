@@ -26,7 +26,7 @@ pub const map = .{
         .{ "/scatty/rooms", roomsList },
         .{ "/scatty/rooms/list", roomsListItems },
         .{ "/scatty/rooms/create", roomCreateForm },
-        .{ "/scatty/rooms/join", roomJoinForm },
+        .{ "/scatty/rooms/join/:room_urn", roomJoinForm },
         .{ "/scatty/rooms/connect/:client_urn", upgradeToWebsocket },
     }),
     .post = RouteMap.initComptime(.{
@@ -35,7 +35,8 @@ pub const map = .{
     }),
 };
 
-const index_html: Html = @embedFile("html/index.html");
+pub const index_html: Html = @embedFile("html/index.html");
+pub const room_html: Html = @embedFile("html/room.html");
 
 pub fn index(_: *App, _: *Request, res: *Response) !void {
     res.content_type = .HTML;
@@ -185,9 +186,9 @@ pub fn createRoomFromForm(app: *App, req: *Request, res: *Response) !void {
         \\      ws-connect="/scatty/rooms/connect/{{client_urn}}">
         \\      <div id="game-container"></div>
         \\      <hr>
-        \\      <div id="player-list-container"></div>
+        \\      <div id="player-info-section-container"></div>
         \\      <hr>
-        \\      <div id="room-info-container"></div>
+        \\      <div id="room-info-section-container"></div>
         \\      <hr>
         \\</div>
     ;
@@ -219,10 +220,9 @@ pub fn joinRoomFromForm(app: *App, req: *Request, res: *Response) !void {
         \\      ws-connect="/scatty/rooms/connect/{{client_urn}}">
         \\      <div id="game-container"></div>
         \\      <hr>
-        \\      <div id="player-list-container"></div>
+        \\      <div id="player-info-section-container"></div>
         \\      <hr>
-        \\      <div id="room-info-container"></div>
-        \\      <hr>
+        \\      <div id="room-info-section-container"></div>
         \\</div>
     ;
     

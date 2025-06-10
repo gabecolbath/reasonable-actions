@@ -3,7 +3,8 @@ const uuid = @import("uuid");
 const httpz = @import("httpz");
 const conf = @import("config.zig");
 const routes = @import("routes.zig");
-const control = @import("control.zig");
+const cmd = @import("command.zig");
+const mustache = @import("mustache");
 
 const websocket = httpz.websocket;
 
@@ -33,7 +34,7 @@ pub const Client = struct {
 
 pub const Room = struct {
     uid: Uuid,
-    client_ids: ArrayListUnmanaged(Uuid),
+    client_ids: *ArrayListUnmanaged(Uuid),
     name: []const u8,
 };
 
@@ -51,6 +52,7 @@ pub const Connection = struct {
 
     pub fn init(conn: *websocket.Conn, ctx: *const Context) !Connection {
         try ctx.app.connect(conn, ctx.client_id);
+
         const client = ctx.app.clients.get(ctx.client_id) orelse return ServerError.ClientNotFound;
         const room = ctx.app.rooms.get(client.room_id) orelse return ServerError.RoomNotFound;
 
@@ -61,13 +63,28 @@ pub const Connection = struct {
         };
     }
 
-    pub fn afterInit(self: *Self) !void {
-        debugPrintConnectMessage(self.client, self.room);
-        try self.client.ws_conn.?.write(control.room_html);
+    pub fn initAssumeEstablished(app: *Application, client: Client, room: Room) Connection {
+        return Connection{
+            .app = app,
+            .client = client,
+            .room = room,
+        };
     }
 
+    pub fn afterInit(self: *Self) !void {
+        debugPrintConnectMessage(self.client, self.room);
+
+        const content = routes.room_html;
+        try cmd.respondSelf(self, content);
+    }
+
+
     pub fn clientMessage(self: *Self, data: []const u8) !void {
-        control.handleMessage(self.app.arena, self, data) catch |err| {
+        var arena_wrapper = ArenaAllocator.init(self.app.arena);
+        const arena = arena_wrapper.allocator();
+        defer arena_wrapper.deinit();
+
+        cmd.handleMessage(arena, self, data) catch |err| {
             std.debug.print("Error Handling Client Message: {}\n", .{err});
         };
     }
@@ -75,6 +92,12 @@ pub const Connection = struct {
     pub fn close(self: *Self) void {
         debugPrintDisconnectMessage(self.client, self.room);
         self.app.disconnect(self);
+
+        var arena_wrapper = ArenaAllocator.init(self.app.arena);
+        const arena = arena_wrapper.allocator();
+        defer arena_wrapper.deinit();
+        
+        cmd.updatePlayerListsLeave(arena, self, null) catch return;
     }
 };
 
@@ -135,10 +158,13 @@ pub const Application = struct {
     pub fn create(self: *Self, client_name: []const u8, room_name: []const u8) !Uuid {
         const generated_room_uid = uuid.v7.new();
         const generated_room_name = try self.arena.dupe(u8, room_name);
-        const generated_room_client_buffer = try self.arena.alloc(Uuid, conf.num_members_per_room_capacity);
+        const generated_room_client_list = try self.arena.create(ArrayListUnmanaged(Uuid));
+
+        generated_room_client_list.* = try ArrayListUnmanaged(Uuid).initCapacity(self.arena, conf.num_members_per_room_capacity);
+
         const new_room = Room{
             .uid = generated_room_uid,
-            .client_ids = ArrayListUnmanaged(Uuid).initBuffer(generated_room_client_buffer),
+            .client_ids = generated_room_client_list,
             .name = generated_room_name,
         };
 
@@ -162,16 +188,15 @@ pub const Application = struct {
     }
 
     pub fn connect(self: *Self, conn: *websocket.Conn, client_id: Uuid) !void {
-        const waiting_entry = self.waiting.fetchSwapRemove(client_id) orelse return ServerError.MissingFromConnectionWaitList;
-        var connecting_room = waiting_entry.value.room;
-        var connecting_client = waiting_entry.value.client;   
-        
-        connecting_client.ws_conn = conn;
-        self.clients.putAssumeCapacity(connecting_client.uid, connecting_client);
-        connecting_room.client_ids.appendAssumeCapacity(connecting_client.uid);
-        
-        if (!self.rooms.contains(connecting_room.uid)) {
-            self.rooms.putAssumeCapacity(connecting_room.uid, connecting_room);
+        var waiting_connection = self.waiting.get(client_id) orelse return ServerError.MissingFromConnectionWaitList;
+        defer _ = self.waiting.swapRemove(client_id);
+
+        waiting_connection.room.client_ids.appendAssumeCapacity(waiting_connection.client.uid);
+        waiting_connection.client.ws_conn = conn;
+
+        self.clients.putAssumeCapacity(waiting_connection.client.uid, waiting_connection.client);
+        if (!self.rooms.contains(waiting_connection.room.uid)) {
+            self.rooms.putAssumeCapacity(waiting_connection.room.uid, waiting_connection.room);
         }
     }
     
@@ -188,8 +213,9 @@ pub const Application = struct {
         }
 
         if (conn.room.client_ids.items.len == 0) {
-            self.arena.free(conn.room.name);
             conn.room.client_ids.deinit(self.arena);
+            self.arena.destroy(conn.room.client_ids);
+            self.arena.free(conn.room.name);
 
             _ = self.rooms.swapRemove(conn.room.uid);
         }
@@ -291,4 +317,19 @@ pub fn debugPrintCreateMessage(client: Client, room: Room) void {
         uuid.urn.serialize(room.uid),
         room.name,
     });
+}
+
+pub fn debugPrintClientList(app: *Application, room: Room) void {
+    std.debug.print("[room : {s}] [name : {s}] Clients: \n", .{
+        uuid.urn.serialize(room.uid),
+        room.name,
+    });
+    for (room.client_ids.items, 0..) |client_id, count| {
+        const client_name = app.clientName(client_id) catch "???";
+        std.debug.print("\t{d}. [client : {s}] [name : {s}]\n", .{
+            count,
+            uuid.urn.serialize(client_id),
+            client_name,
+        });
+    }
 }

@@ -37,7 +37,7 @@ const cmd_map = CommandMap.initComptime(.{
     .{ "updateRoomInfo", updateRoomInfo },
 });
 
-pub fn handleMessage(arena: Allocator, conn: *Connection, msg: []const u8) !void {
+pub fn handleMessageAsCommand(arena: Allocator, conn: *Connection, msg: []const u8) !void {
     const is_valid = try json.validate(arena, msg);
     if (is_valid) {
         const parsed_cmd = try json.parseFromSlice(json.Value, arena, msg, .{});

@@ -15,11 +15,31 @@ pub const Scene = enum {
     winning,
 };
 
-pub const Options = struct {
+pub const GameOptions = struct {
     rounds: u8 = 3,
     categories_per_round: u8 = 12,
     repeat_categories: bool = true,
     answering_time_limit: u16 = 120,
     voting_time_limit: ?u16 = null,
-    special_points: bool = true,
+    alliteration_points: bool = true,
+    scoring_mode: ScoringMode = .normal,
+    weighted_scores: bool = false,
+    
+    pub const ScoringMode = enum {
+        normal,
+        creative,
+    };
+
+};
+
+pub const GameState = struct {
+    opts: GameOptions,
+
+    const Self = @This();
+
+    pub fn init(opts: GameOptions) Self {
+        return Self{
+            .opts = opts,
+        };
+    }
 };

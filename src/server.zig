@@ -5,14 +5,17 @@ const conf = @import("config.zig");
 const routes = @import("routes.zig");
 const cmd = @import("command.zig");
 const mustache = @import("mustache");
+const game = @import("game.zig");
 
 const websocket = httpz.websocket;
 
 pub const ServerError = error {
     RoomNotFound,
     ClientNotFound,
+    GameNotFound,
     MissingFromConnectionWaitList,
     ClientNotConnected,
+    NoActiveGame,
 };
 
 const Allocator = std.mem.Allocator;
@@ -20,6 +23,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const AutoHashMap = std.AutoArrayHashMap;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator(.{}){}; 
+const GameState = game.GameState;
 const Request = httpz.Request;
 const Response = httpz.Response;
 const Uuid = uuid.Uuid;
@@ -40,6 +44,7 @@ pub const Room = struct {
 
 pub const Connection = struct {
     app: *Application,
+    game_state: ?*GameState,
     client: Client,
     room: Room,
 
@@ -58,6 +63,7 @@ pub const Connection = struct {
 
         return Self{
             .app = ctx.app,
+            .game_state = null,
             .client = client,
             .room = room,
         };
@@ -80,11 +86,11 @@ pub const Connection = struct {
 
 
     pub fn clientMessage(self: *Self, data: []const u8) !void {
-        var arena_wrapper = ArenaAllocator.init(self.app.arena);
+        var arena_wrapper = ArenaAllocator.init(self.app.app_arena);
         const arena = arena_wrapper.allocator();
         defer arena_wrapper.deinit();
 
-        cmd.handleMessage(arena, self, data) catch |err| {
+        cmd.handleMessageAsCommand(arena, self, data) catch |err| {
             std.debug.print("Error Handling Client Message: {}\n", .{err});
         };
     }
@@ -93,7 +99,7 @@ pub const Connection = struct {
         debugPrintDisconnectMessage(self.client, self.room);
         self.app.disconnect(self);
 
-        var arena_wrapper = ArenaAllocator.init(self.app.arena);
+        var arena_wrapper = ArenaAllocator.init(self.app.app_arena);
         const arena = arena_wrapper.allocator();
         defer arena_wrapper.deinit();
         
@@ -102,28 +108,33 @@ pub const Connection = struct {
 };
 
 pub const Application = struct {
-    arena: Allocator,
+    app_arena: Allocator,
+    games_arena: Allocator,
     waiting: AutoHashMap(Uuid, Connection),
     clients: AutoHashMap(Uuid, Client),
     rooms: AutoHashMap(Uuid, Room),
+    games: AutoHashMap(Uuid, *GameInstance),
 
     const Self = @This();
     pub const WebsocketHandler = Connection;
 
-    pub fn init(arena: *ArenaAllocator) !Self {
-        var waiting_map = AutoHashMap(Uuid, Connection).init(arena.allocator());
-        var client_map = AutoHashMap(Uuid, Client).init(arena.allocator());
-        var room_map = AutoHashMap(Uuid, Room).init(arena.allocator());
+    pub fn init(app_arena: *ArenaAllocator, games_arena: *ArenaAllocator) !Self {
+        var waiting_map = AutoHashMap(Uuid, Connection).init(app_arena.allocator());
+        var client_map = AutoHashMap(Uuid, Client).init(app_arena.allocator());
+        var room_map = AutoHashMap(Uuid, Room).init(app_arena.allocator());
+        var game_map = AutoHashMap(Uuid, *GameInstance).init(app_arena.allocator());
         
         try waiting_map.ensureTotalCapacity(conf.num_clients_capacity);
         try client_map.ensureTotalCapacity(conf.num_clients_capacity);
         try room_map.ensureTotalCapacity(conf.num_clients_capacity);
+        try game_map.ensureTotalCapacity(conf.num_rooms_capacity);
 
         return Self{
-            .arena = arena.allocator(),
+            .app_arena = app_arena.allocator(),
             .waiting = waiting_map,
             .clients = client_map,
             .rooms = room_map,
+            .games = game_map,
         };
     }
     
@@ -131,13 +142,14 @@ pub const Application = struct {
         self.waiting.deinit();
         self.clients.deinit();
         self.rooms.deinit();
+        self.games.deinit();
     }
 
     pub fn join(self: *Self, client_name: []const u8, room_id: Uuid) !Uuid {
         const room_joining = self.rooms.get(room_id) orelse return ServerError.RoomNotFound;
 
         const generated_client_uid = uuid.v7.new();
-        const generated_client_name = try self.arena.dupe(u8, client_name);
+        const generated_client_name = try self.app_arena.dupe(u8, client_name);
         const new_client = Client{
             .uid = generated_client_uid,
             .room_id = room_id,
@@ -157,10 +169,10 @@ pub const Application = struct {
 
     pub fn create(self: *Self, client_name: []const u8, room_name: []const u8) !Uuid {
         const generated_room_uid = uuid.v7.new();
-        const generated_room_name = try self.arena.dupe(u8, room_name);
-        const generated_room_client_list = try self.arena.create(ArrayListUnmanaged(Uuid));
+        const generated_room_name = try self.app_arena.dupe(u8, room_name);
+        const generated_room_client_list = try self.app_arena.create(ArrayListUnmanaged(Uuid));
 
-        generated_room_client_list.* = try ArrayListUnmanaged(Uuid).initCapacity(self.arena, conf.num_members_per_room_capacity);
+        generated_room_client_list.* = try ArrayListUnmanaged(Uuid).initCapacity(self.app_arena, conf.num_members_per_room_capacity);
 
         const new_room = Room{
             .uid = generated_room_uid,
@@ -169,7 +181,7 @@ pub const Application = struct {
         };
 
         const generated_client_uid = uuid.v7.new();
-        const generated_client_name = try self.arena.dupe(u8, client_name);
+        const generated_client_name = try self.app_arena.dupe(u8, client_name);
         const new_client = Client{
             .uid = generated_client_uid,
             .room_id = new_room.uid,
@@ -202,7 +214,7 @@ pub const Application = struct {
     
     pub fn disconnect(self: *Self, conn: *Connection) void {
         conn.client.ws_conn = null;
-        self.arena.free(conn.client.name);
+        self.app_arena.free(conn.client.name);
         
         _ = self.clients.swapRemove(conn.client.uid);
         for (conn.room.client_ids.items, 0..) |possible_removal_id, index| {
@@ -213,9 +225,9 @@ pub const Application = struct {
         }
 
         if (conn.room.client_ids.items.len == 0) {
-            conn.room.client_ids.deinit(self.arena);
-            self.arena.destroy(conn.room.client_ids);
-            self.arena.free(conn.room.name);
+            conn.room.client_ids.deinit(self.app_arena);
+            self.app_arena.destroy(conn.room.client_ids);
+            self.app_arena.free(conn.room.name);
 
             _ = self.rooms.swapRemove(conn.room.uid);
         }
@@ -239,6 +251,11 @@ pub const Application = struct {
     pub fn clientsFrom(self: *Self, room_id: Uuid) ![]Uuid {
         const room = self.rooms.get(room_id) orelse return ServerError.RoomNotFound;
         return room.client_ids.items;
+    }
+
+    pub fn gameFrom(self: *Self, room_id: Uuid) !*GameInstance {
+        const game_instance = self.games.get(room_id) orelse ServerError.GameNotFound;
+        return game_instance;
     }
 
     pub fn queryClientByName(self: *Self, client_name: []const u8) !Uuid {

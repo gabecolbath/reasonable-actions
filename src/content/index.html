@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Reasonable Actions</title>
+        <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.js" integrity="sha384-oeUn82QNXPuVkGCkcrInrS1twIxKhkZiFfr2TdiuObZ3n3yIeMiqcRzkIcguaof1" crossorigin="anonymous"></script>
+        <script src="https://unpkg.com/htmx-ext-ws@2.0.2" integrity="sha384-932iIqjARv+Gy0+r6RTGrfCkCKS5MsF539Iqf6Vt8L4YmbnnWI2DSFoMD90bvXd0" crossorigin="anonymous"></script>
+    </head>
+    <style>
+    </style>
+    <body hx-ext="ws">
+        <div id="page" 
+            hx-trigger="load once"
+            hx-get="/rooms"
+            hx-swap="innerHTML"
+            hx-replace-url="true">
+        </div>
+    </body>
+</html>

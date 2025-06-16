@@ -1,0 +1,17 @@
+<h3>Rooms</h3>
+<hr>
+<form id="create-room"
+    hx-post="/rooms/create"
+    hx-target="#create-room"
+    hx-swap="afterend">
+        <input id="room-name" name="room-name" type="text" placeholder="Room Name">
+        <button id="create-room-submit" type="submit">Create</button>
+</form>
+<hr>
+<div id="rooms"
+    hx-trigger="load once"
+    hx-get="rooms/list"
+    hx-target="#rooms-list"
+    hx-swap="beforeend">
+    <div id="rooms-list"></div>
+</div>

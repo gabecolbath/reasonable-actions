@@ -4,6 +4,9 @@ const httpz = @import("httpz");
 const mustache = @import("mustache");
 const conf = @import("config.zig");
 const server = @import("server.zig");
+const elements = @import("rendering/elements.zig");
+const attributes = @import("rendering//attributes.zig");
+const game = @import("game.zig");
 
 pub const RequestError = error {
     InvalidParameter,
@@ -13,6 +16,7 @@ pub const RequestError = error {
 const Allocator = std.mem.Allocator;
 const App = server.Application;
 const Html = []const u8;
+const Elem = elements.Element;
 const Request = httpz.Request;
 const Response = httpz.Response;
 const RouteMap = std.StaticStringMap(httpz.Action(*App));
@@ -21,246 +25,99 @@ const Urn = uuid.urn.Urn;
 
 pub const map = .{
     .get = RouteMap.initComptime(.{
-        .{ "/", index },
-        .{ "/games", gamesList },
-        .{ "/scatty/rooms", roomsList },
-        .{ "/scatty/rooms/list", roomsListItems },
-        .{ "/scatty/rooms/create", roomCreateForm },
-        .{ "/scatty/rooms/join/:room_urn", roomJoinForm },
-        .{ "/scatty/rooms/connect/:client_urn", upgradeToWebsocket },
+        .{ "/", Get.index },
+        .{ "/rooms", Get.rooms },
+        .{ "/rooms/list", Get.roomsList },
     }),
     .post = RouteMap.initComptime(.{
-        .{ "/scatty/room/create", createRoomFromForm },
-        .{ "/scatty/room/join/:room_urn", joinRoomFromForm },
+        .{ "/rooms/create", Post.createRoom },
+        .{ "/rooms/enter", Post.enterRoom },
     }),
 };
 
-pub const index_html: Html = @embedFile("html/index.html");
-pub const room_html: Html = @embedFile("html/room.html");
+pub const Get = struct {
+    pub fn index(_: *App, _: *Request, res: *Response) !void {
+        const content = @embedFile("content/index.html");
 
-pub fn index(_: *App, _: *Request, res: *Response) !void {
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = index_html;
-}
+        res.content_type = .HTML;
+        res.status = 200;
+        res.body = content;
+    }
 
-pub fn gamesList(_: *App, _: *Request, res: *Response) !void {
-    const content = 
-        \\<div id="page-container">
-        \\<h1>Games</h1>
-        \\<a href="/scatty/rooms"
-        \\      hx-get="/scatty/rooms"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML"
-        \\      hx-push-url="true">
-        \\      Scatty
-        \\</a>
-    ;
+    pub fn rooms(_: *App, _: *Request, res: *Response) !void {
+        const content = @embedFile("content/rooms.html");
 
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = content;
-}
+        res.content_type = .HTML;
+        res.status = 200;
+        res.body = content;
+    }
 
-pub fn roomsList(_: *App, _: *Request, res: *Response) !void {
-    const content = 
-        \\<div id="page-container">
-        \\<h1>Rooms</h1>
-        \\<button id="create-room-button"
-        \\      hx-get="/scatty/rooms/create"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML"
-        \\      hx-replace-url="/scatty/rooms/create">
-        \\      Create Room
-        \\</button>
-        \\<div id="rooms-list-container"
-        \\      hx-get="/scatty/rooms/list"
-        \\      hx-trigger="load"
-        \\      hx-target="#rooms-list-container"
-        \\      hx-swap="innerHTML">
-        \\</div>
-        \\</div>
-    ;
+    pub fn roomsList(app: *App, _: *Request, res: *Response) !void {
+        const template = @embedFile("content/rooms-list-item.html");
 
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = content;
-}
+        if (app.rooms.count() == 0) {
+            res.content_type = .HTML;
+            res.status = 200;
+            res.body = "No Rooms :(";
+        } else {
+            res.content_type = .HTML;
+            res.status = 200;
+            const output = res.writer();
+            for (app.rooms.values()) |room| {
+                const content = try mustache.allocRenderText(res.arena, template, .{
+                    .room_urn = uuid.urn.serialize(room.uid),
+                    .room_name = room.name,
+                });
+                try output.writeAll(content);
+            }
+        }
+    }
+};
 
-pub fn roomsListItems(app: *App, _: *Request, res: *Response) !void {
-    const template = 
-        \\<a href="/scatty/rooms/join/{{room_urn}}"
-        \\      hx-get="/scatty/rooms/join/{{room_urn}}"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML"
-        \\      hx-replace-url="/scatty/rooms/join/{{room_name}}">
-        \\      {{room_name}}
-        \\</a>
-        \\<br>
-    ;
-    
-    res.content_type = .HTML;
-    res.status = 200;
+pub const Post = struct {
+    pub fn createRoom(app: *App, req: *Request, res: *Response) !void {
+        const template = @embedFile("content/enter-room.html");
 
-    const res_writer = res.writer();
-    const rooms = app.rooms.values();
-    for (rooms) |room| {
+        const form_data = try req.formData();
+        const room_name = form_data.get("room-name") orelse "???";
+
+        const new_room = try app.openRoom(room_name);
+        errdefer app.closeRoom(new_room.uid);
+        
         const content = try mustache.allocRenderText(res.arena, template, .{
-            .room_urn = uuid.urn.serialize(room.uid),
-            .room_name = room.name,
+            .room_urn = uuid.urn.serialize(new_room.uid),
         });
         
-        try res_writer.writeAll(content);
+        res.content_type = .HTML;
+        res.status = 200;
+        res.body = content;
     }
-}
 
-pub fn roomCreateForm(_: *App, _: *Request, res: *Response) !void {
-    const content =
-        \\<div id="page-container">
-        \\<a href="/scatty/rooms"
-        \\      hx-get="/scatty/rooms"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML"
-        \\      hx-push-url="true">
-        \\      Back To List
-        \\</a>
-        \\<form id="room-create-form"
-        \\      hx-post="/scatty/room/create"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML">
-        \\      <label for="room-name-input">Room Name</label>
-        \\      <input id="room-name-input" name="room_name" type="text"><br>
-        \\      <label for="member-name-input">Name</label>
-        \\      <input id="member-name-input" name="client_name" type="text"><br>
-        \\      <button id="join-button" type="submit">Enter</button>
-        \\</form>
-        \\</div>
-    ;
+    pub fn enterRoom(app: *App, req: *Request, res: *Response) !void {
+        const template = @embedFile("content/room.html");
 
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = content;
-}
+        const form_data = try req.formData();
+        const room_urn = form_data.get("room-urn") orelse return RequestError.InvalidFormData;
+        const memeber_name = form_data.get("member-name") orelse "???";
 
-pub fn roomJoinForm(_: *App, req: *Request, res: *Response) !void {
-    const template =
-        \\<div id="page-container">
-        \\<a href="/scatty/rooms"
-        \\      hx-get="/scatty/rooms"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML"
-        \\      hx-push-url="true">
-        \\      Back To List
-        \\</a>
-        \\<form id="room-join-form"
-        \\      hx-post="/scatty/room/join/{{room_urn}}"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML">
-        \\      <label for="name-input">Name</label>
-        \\      <input id="name-input" name="client_name" type="text"><br>
-        \\      <button id="join-button" type="submit">Enter</button>
-        \\</form>
-        \\</div>
-    ;
-
-    const req_room_urn = req.param("room_urn") orelse return RequestError.InvalidParameter;
-    
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = try mustache.allocRenderText(res.arena, template, .{
-        .room_urn = req_room_urn,
-    });
-}
-
-pub fn createRoomFromForm(app: *App, req: *Request, res: *Response) !void {
-    const template = 
-        \\<div id="page-container" hx-ext="ws">
-        \\<button id="leave-button"
-        \\      hx-get="/scatty/rooms"
-        \\      hx-target="#page-container"
-        \\      hx-swap="outerhtml"
-        \\      hx-replace-url="true">
-        \\      leave
-        \\</button>
-        \\<div id="websocket-container"
-        \\      ws-connect="/scatty/rooms/connect/{{client_urn}}">
-        \\      <div id="game-container"></div>
-        \\      <hr>
-        \\      <div id="player-info-section-container"></div>
-        \\      <hr>
-        \\      <div id="room-info-section-container"></div>
-        \\      <hr>
-        \\</div>
-    ;
-
-    const form_data = try req.formData();
-    const req_client_name = form_data.get("client_name") orelse return RequestError.InvalidFormData;
-    const req_room_name = form_data.get("room_name") orelse return RequestError.InvalidFormData;
-
-    const new_client_id = try app.create(req_client_name, req_room_name);
-    
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = try mustache.allocRenderText(res.arena, template, .{
-        .client_urn  = uuid.urn.serialize(new_client_id),
-    });
-}
-
-pub fn joinRoomFromForm(app: *App, req: *Request, res: *Response) !void {
-    const template = 
-        \\<div id="page-container" hx-ext="ws">
-        \\<button id="leave-button"
-        \\      hx-get="/scatty/rooms"
-        \\      hx-target="#page-container"
-        \\      hx-swap="innerHTML"
-        \\      hx-replace-url="true">
-        \\      leave
-        \\</button>
-        \\<div id="websocket-container"
-        \\      ws-connect="/scatty/rooms/connect/{{client_urn}}">
-        \\      <div id="game-container"></div>
-        \\      <hr>
-        \\      <div id="player-info-section-container"></div>
-        \\      <hr>
-        \\      <div id="room-info-section-container"></div>
-        \\</div>
-    ;
-    
-    const form_data = try req.formData();
-    const req_client_name = form_data.get("client_name") orelse return RequestError.InvalidFormData;
-    
-    const req_room_urn = req.param("room_urn") orelse return RequestError.InvalidParameter;
-    const req_room_id = try uuid.urn.deserialize(req_room_urn);
-
-    const new_client_id = try app.join(req_client_name, req_room_id);
-    
-    res.content_type = .HTML;
-    res.status = 200;
-    res.body = try mustache.allocRenderText(res.arena, template, .{
-        .client_urn = uuid.urn.serialize(new_client_id),
-    });
-}
-
-pub fn upgradeToWebsocket(app: *App, req: *Request, res: *Response) !void {
-    const failed_content = 
-        \\<h1
-        \\      hx-swap-oob="#page-container">
-        \\Failed to Connect :(
-        \\</h1>
-    ; 
-
-    const req_client_urn = req.param("client_urn") orelse return RequestError.InvalidParameter; 
-    const req_client_id = try uuid.urn.deserialize(req_client_urn);
-    
-    const ctx = server.Connection.Context{
-        .app = app,
-        .client_id = req_client_id,
-    };
-
-    const is_successfully_connected = try httpz.upgradeWebsocket(server.Connection, req, res, &ctx);
-
-    if (!is_successfully_connected) {
-        res.status = 500;
-        res.body = failed_content;
+        const room_uid = try uuid.urn.deserialize(room_urn);
+        const room = app.rooms.get(room_uid) orelse return server.ServerError.RoomNotFound;
+        
+        errdefer app.closeRoom(room_uid);
+        const new_member = try app.newMember(memeber_name);
+        app.waiting.putAssumeCapacity(new_member.uid, .{
+            .app = app,
+            .member = new_member,
+            .room = room,
+        });
+        
+        const content = try mustache.allocRenderText(res.arena, template, .{
+            .room_name =room.name,
+            .room_urn = room_urn,
+        });
+        
+        res.content_type = .HTML;
+        res.status = 200;
+        res.body = content;
     }
-}
+};

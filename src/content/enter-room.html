@@ -1,0 +1,10 @@
+<form id="enter-room"
+    hx-post="/rooms/enter"
+    hx-target="#page"
+    hx-swap="innerHTML"
+    hx-vals='{
+        "room-urn": "{{{room_urn}}}"
+    }'>
+    <input id="member-name" name="member-name", type="text" placeholder="Name">
+    <button id="enter-room-submit" type="submit">Enter</button>
+</form>

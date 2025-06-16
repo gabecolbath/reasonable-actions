@@ -1,137 +1,126 @@
 const std = @import("std");
-const uuid = @import("uuid");
-const httpz = @import("httpz"); 
-const mustache = @import("mustache");
-const conf = @import("config.zig");
 const server = @import("server.zig");
 
-const websocket = httpz.websocket;
 const json = std.json;
 
-const CommandError = error {
-    InvalidJson,
-    InvalidParameters,
-    UnknownCmd,
-    UnknownParameter,
-    MissingCmd,
-    MissingParameters,
-    MissingParametersType,
+pub const ParseError = error {
+    InvalidJson, 
+    MissingCommand,
+};
+
+pub const ExecError = error {
+    UnknownCommand,
 };
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
-const App = server.Application;
-const Connection = server.Connection;
-const CommandMap = std.StaticStringMap(Command);
-const ParameterMap = std.StaticStringMap(type);
-const Room = server.Room;
-const Uuid = uuid.Uuid;
-const Urn = uuid.urn.Urn;
-const Game = {}; //TODO
+const CommandMap = std.StaticStringMap(Action);
+const ParameterMap = std.StringArrayHashMapUnmanaged([]const u8);
+const Client = server.Client;
 
-const Command = *const fn (arena: Allocator, conn: *Connection, parameters: ?json.Value) anyerror!void;
+pub const Action = *const fn (arena: *ArenaAllocator, cmd: Command) anyerror!void;
 
-const cmd_map = CommandMap.initComptime(.{
-    .{ "updatePlayerListsJoined", updatePlayerListsJoined },
-    .{ "updateRoomInfo", updateRoomInfo },
+pub const Command = struct {
+    name: []const u8,
+    params: ParameterMap,
+    source: *Client,
+    data: ?[]const u8 = null,
+};
+
+pub const Handler = struct {
+    map: *const CommandMap,
+
+    const Self = @This();
+    const ParsedCommand = struct {
+        cmd: ?[]const u8 = null,
+        params: ?[]ParsedParameter = null,
+    };
+    const ParsedParameter = struct {
+        param: []const u8,
+        value: []const u8,
+    };
+    const ResponseOption = enum {
+        member,
+        room_all,
+        room_exc,
+    };
+
+    pub fn parseCommand(_: *Self, arena: *ArenaAllocator, msg: []const u8, source: *Client) !Command {
+        if (try json.validate(arena.allocator(), msg)) {
+            const parsed = try json.parseFromSlice(ParsedCommand, arena.allocator(), msg, .{});
+            const parsed_cmd = parsed.value.cmd orelse return ParseError.MissingCommand;
+            const parsed_params = map_params: {
+                if (parsed.value.params) |params| {
+                    var map = ParameterMap{};
+                    for (params) |p| {
+                        try map.put(arena.allocator(), p.param, p.value);
+                    } else break :map_params map;
+                } else break :map_params ParameterMap{};
+            };
+
+            return Command{
+                .name = parsed_cmd,
+                .params = parsed_params,
+                .source = source,
+                .data = msg,
+            };
+        } else return ParseError.InvalidJson;
+    }
+
+    pub fn parseFormData(_: *Self, ParseType: type, arena: *ArenaAllocator, msg: []const u8) !ParseType {
+        if (try json.validate(arena.allocator(), msg)) {
+            const parsed = try json.parseFromSlice(ParseType, arena.allocator(), msg, .{}); 
+            return parsed.value;
+        } else return ParseError.InvalidJson;
+    }
+
+    pub fn respond(opt: ResponseOption, client: *Client, res: []const u8) !void {
+        switch (opt) {
+            .member => {
+                if (client.member.conn) |conn| {
+                    try conn.write(res);
+                } else return server.ServerError.MemberNotConnected;
+            },
+            .room_all => {
+                for (client.room.member_list) |member_id| {
+                    const member = client.app.members.get(member_id) orelse continue;
+                    const est_client= server.Client.initAssumeEstablished(client.app, member, client.room);
+                    respond(.member, &est_client, res) catch continue;
+                }
+            },
+            .room_exc => {
+                const exclude_id = client.member.uid;
+                for (client.room.member_list) |member_id| {
+                    if (member_id == exclude_id) continue;
+                    const member = client.app.members.get(member_id) orelse continue;
+                    const est_client= server.Client.initAssumeEstablished(client.app, member, client.room);
+                    respond(.member, &est_client, res) catch continue;
+                }
+            }
+        }
+    }
+
+    pub fn exec(self: *Self, arena: *ArenaAllocator, cmd: Command) !void {
+        const action = self.map.get(cmd.name) orelse return ExecError.UnknownCommand;
+        try action(arena, cmd);
+    }
+};
+
+pub const builtin_cmd_map = CommandMap.initComptime(.{
+    .{ "roomInfo", roomInfo },
 });
 
-pub fn handleMessage(arena: Allocator, conn: *Connection, msg: []const u8) !void {
-    const is_valid = try json.validate(arena, msg);
-    if (is_valid) {
-        const parsed_cmd = try json.parseFromSlice(json.Value, arena, msg, .{});
-        
-        const cmd_json_val = parsed_cmd.value.object.get("cmd") orelse return CommandError.MissingCmd;
-        const parameters_json_val = parsed_cmd.value.object.get("parameters");
-        
-        const cmd: Command = cmd_map.get(cmd_json_val.string) orelse return CommandError.UnknownCmd;
-        try cmd(arena, conn, parameters_json_val);
-    } else return CommandError.InvalidJson;
-}
-
-pub fn respondSelf(conn: *const Connection, res: []const u8) !void {
-    if (conn.client.ws_conn) |ws| {
-        try ws.write(res);
-    } else return server.ServerError.ClientNotConnected;
-}
-
-pub fn respondAllInclusive(conn: *const Connection, res: []const u8) void {
-    for (conn.room.client_ids.items) |client_id| {
-        const client = conn.app.clients.get(client_id) orelse continue;
-        const est_conn = Connection.initAssumeEstablished(conn.app, client, conn.room);
-        respondSelf(&est_conn, res) catch continue;
-    }
-}
-
-pub fn respondAllExclusive(conn: *const Connection, res: []const u8) void {
-    const exclude_id = conn.client.uid;
-    for (conn.room.client_ids.items) |client_id| {
-        if (client_id == exclude_id) continue;
-        const client = conn.app.clients.get(client_id) orelse continue;
-        const est_conn = Connection.initAssumeEstablished(conn.app, client, conn.room);
-        respondSelf(&est_conn, res) catch continue;
-    }
-}
-
-pub fn updatePlayerListsJoined(arena: Allocator, conn: *Connection, _: ?json.Value) !void {
-    const template = 
-        \\<div id="player-list-item"
-        \\      hx-swap-oob="beforeend:#player-info-container">
-        \\      {{client_name}}
-        \\</div>
-    ;
-
-    for (conn.room.client_ids.items) |client_id| {
-        const client_name = try conn.app.clientName(client_id);
-        const content = try mustache.allocRenderText(arena, template, .{
-            .client_name = client_name,  
-        });
-        try respondSelf(conn, content);
-    }
-
-    const content = try mustache.allocRenderText(arena, template, .{
-        .client_name = conn.client.name,
-    });
-    respondAllExclusive(conn, content);
-}
-
-pub fn updatePlayerListsLeave(arena: Allocator, conn: *Connection, _: ?json.Value) !void {
-    const erased_list_content = 
-        \\<div id="player-list-container"
-        \\      hx-swap-oob="outerHTML:#player-info-container">
-        \\</div>
-    ;
-    respondAllInclusive(conn, erased_list_content);
+pub fn asJson(allocator: Allocator, cmd: []const u8, params: anytype) ![]const u8 {
+    var output = ArrayList(u8).init(allocator);
+    std.json.stringify(.{
+        .cmd = cmd,
+        .params = params,
+    }, .{}, output.writer());
     
-    const template = 
-        \\<div id="player-list-item"
-        \\      hx-swap-oob="beforeend:#player-info-container">
-        \\      {{client_name}}
-        \\</div>
-    ;
-
-    for (conn.room.client_ids.items) |client_id| {
-        const client_name = try conn.app.clientName(client_id);
-        const content = try mustache.allocRenderText(arena, template, .{
-            .client_name = client_name,
-        });
-        respondAllInclusive(conn, content);
-    }
+    return try output.toOwnedSlice();
 }
 
-pub fn updateRoomInfo(arena: Allocator, conn: *Connection, _: ?json.Value) !void {
-    const template = 
-        \\<div id="room-info-container"
-        \\      hx-swap-oob="outerHTML:#room-info-container">
-        \\      {{room_name}} : {{room_urn}}
-        \\</div>
-    ;
-
-    const content = try mustache.allocRenderText(arena, template, .{
-        .room_name = conn.room.name,
-        .room_urn = uuid.urn.serialize(conn.room.uid),
-    });
+pub fn roomInfo(_: *ArenaAllocator, _: Command) !void {
     
-    try respondSelf(conn, content); 
-}
+} 

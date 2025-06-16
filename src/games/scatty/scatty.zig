@@ -6,11 +6,6 @@ const random = std.crypto.random;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const StaticStringMap = std.StaticStringMap;
-
-pub const available_games = StaticStringMap(void).initComptime(.{
-    .{ "scatty", {} },
-});
 
 pub const Scene = enum {
     lobby,
@@ -18,8 +13,6 @@ pub const Scene = enum {
     answering,
     voting,
     winning,
-
-    const Self = @This();
 };
 
 pub const Options = struct {
@@ -28,5 +21,24 @@ pub const Options = struct {
     repeat_categories: bool = true,
     answering_time_limit: u16 = 120,
     voting_time_limit: ?u16 = null,
-    special_points: bool = true,
+    alliteration_points: bool = true,
+    scoring_mode: ScoringMode = .normal,
+    weighted_scores: bool = false,
+    
+    pub const ScoringMode = enum {
+        normal,
+        creative,
+    };
+};
+
+pub const Instance = struct {
+    opts: Options,
+
+    const Self = @This();
+
+    pub fn init(opts: Options) Self {
+        return Self{
+            .opts = opts,
+        };
+    }
 };

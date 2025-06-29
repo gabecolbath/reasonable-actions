@@ -1,0 +1,62 @@
+.room-card {
+    width: 100%; 
+    height: 100%;
+    
+    border: 2px solid black;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-content: center;
+    align-items: center;
+}
+
+.room-info {
+    width: 100%;
+    height: 100%;
+    
+    padding: 30px;
+
+    cursor: pointer; 
+    
+    display: grid;
+    grid-template-rows: 3fr 2fr 1fr;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: 
+        'logo logo'
+        'name name'
+        'members availability';
+    justify-items: center; 
+    align-items: center;
+}
+
+.room-card-logo {
+    grid-area: logo;
+
+    width: 100%;
+    height: 100%;
+    
+    border: 2pt solid black;
+}
+
+.room-card-name  {
+    grid-area: name;
+    
+    font-size: 2em;
+    font-weight: bold;
+
+    text-align: center;
+    text-justify: center;
+}
+
+.room-card-members {
+    grid-area: members; 
+    justify-self: self-start;
+    align-self: self-end;
+}
+
+.room-card-availability {
+    grid-area: availability;
+    justify-self: self-end;
+    align-self: self-end;
+}

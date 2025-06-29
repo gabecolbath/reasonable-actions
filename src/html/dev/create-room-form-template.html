@@ -1,0 +1,21 @@
+<div class="create-room-card">
+    <form class="enter-room-form"
+        hx-post="rooms/create"
+        hx-target="#rooms-page"
+        hx-swap="outerHTML">
+
+        <input class="member-name-input" name="member-name" type="text" placeholder="Name">
+        <select class="game-choice-input" name="game-choice">
+            <option selected>Scatty</option>
+        </select> 
+        <div class="enter-room-form-buttons">
+            <button class="enter-room-form-cancel"
+                hx-get="rooms/create/card"
+                hx-target="#create-room-card"
+                hx-swap="outerHTML">
+                Cancel
+            </button>
+            <button class="enter-room-form-submit" type="submit">Enter</button>
+        </div>
+    </form>
+</div>

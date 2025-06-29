@@ -12,14 +12,14 @@ pub const ExecError = error {
     UnknownCommand,
 };
 
+pub const CommandMap = std.StaticStringMap(Action);
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
-const CommandMap = std.StaticStringMap(Action);
 const ParameterMap = std.StringArrayHashMapUnmanaged([]const u8);
 const Client = server.Client;
 
-pub const Action = *const fn (arena: *ArenaAllocator, cmd: Command) anyerror!void;
+pub const Action = *const fn (allocator: Allocator, cmd: Command) anyerror!void;
 
 pub const Command = struct {
     name: []const u8,
@@ -29,32 +29,35 @@ pub const Command = struct {
 };
 
 pub const Handler = struct {
-    map: *const CommandMap,
+    map: CommandMap = CommandMap{},
 
     const Self = @This();
+
     const ParsedCommand = struct {
         cmd: ?[]const u8 = null,
         params: ?[]ParsedParameter = null,
     };
+
     const ParsedParameter = struct {
         param: []const u8,
         value: []const u8,
     };
+
     const ResponseOption = enum {
         member,
         room_all,
         room_exc,
     };
 
-    pub fn parseCommand(_: *Self, arena: *ArenaAllocator, msg: []const u8, source: *Client) !Command {
-        if (try json.validate(arena.allocator(), msg)) {
-            const parsed = try json.parseFromSlice(ParsedCommand, arena.allocator(), msg, .{});
+    pub fn parseCommand(_: *Self, allocator: Allocator, msg: []const u8, source: *Client) !Command {
+        if (try json.validate(allocator, msg)) {
+            const parsed = try json.parseFromSlice(ParsedCommand, allocator, msg, .{.ignore_unknown_fields = true});
             const parsed_cmd = parsed.value.cmd orelse return ParseError.MissingCommand;
             const parsed_params = map_params: {
                 if (parsed.value.params) |params| {
                     var map = ParameterMap{};
                     for (params) |p| {
-                        try map.put(arena.allocator(), p.param, p.value);
+                        try map.put(allocator, p.param, p.value);
                     } else break :map_params map;
                 } else break :map_params ParameterMap{};
             };
@@ -68,9 +71,9 @@ pub const Handler = struct {
         } else return ParseError.InvalidJson;
     }
 
-    pub fn parseFormData(_: *Self, ParseType: type, arena: *ArenaAllocator, msg: []const u8) !ParseType {
-        if (try json.validate(arena.allocator(), msg)) {
-            const parsed = try json.parseFromSlice(ParseType, arena.allocator(), msg, .{}); 
+    pub fn parseFormData(_: *Self, ParseType: type, allocator: Allocator, msg: []const u8) !ParseType {
+        if (try json.validate(allocator, msg)) {
+            const parsed = try json.parseFromSlice(ParseType, allocator, msg, .{}); 
             return parsed.value;
         } else return ParseError.InvalidJson;
     }
@@ -101,15 +104,11 @@ pub const Handler = struct {
         }
     }
 
-    pub fn exec(self: *Self, arena: *ArenaAllocator, cmd: Command) !void {
+    pub fn exec(self: *Self, allocator: Allocator, cmd: Command) !void {
         const action = self.map.get(cmd.name) orelse return ExecError.UnknownCommand;
-        try action(arena, cmd);
+        try action(allocator, cmd);
     }
 };
-
-pub const builtin_cmd_map = CommandMap.initComptime(.{
-    .{ "roomInfo", roomInfo },
-});
 
 pub fn asJson(allocator: Allocator, cmd: []const u8, params: anytype) ![]const u8 {
     var output = ArrayList(u8).init(allocator);
@@ -120,7 +119,3 @@ pub fn asJson(allocator: Allocator, cmd: []const u8, params: anytype) ![]const u
     
     return try output.toOwnedSlice();
 }
-
-pub fn roomInfo(_: *ArenaAllocator, _: Command) !void {
-    
-} 

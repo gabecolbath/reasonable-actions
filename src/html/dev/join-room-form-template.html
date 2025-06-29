@@ -1,0 +1,20 @@
+<div class="join-room-card">
+    <form class="enter-room-form"
+        hx-post="rooms/join"
+        hx-target="#rooms-page"
+        hx-swap="outerHTML"
+        hx-vals='{ "room-urn": "{{{room_urn}}}" }'>
+
+        <input class="enter-room-form-member-name" name="member-name" type="text" placeholder="Name">
+        <div class="enter-room-form-buttons">
+            <button class="enter-room-form-cancel"
+                hx-get="rooms/join/card"
+                hx-target="#room-card-{{{room_urn}}}"
+                hx-swap="outerHTML"
+                hx-vals='{ "room-urn": "{{{room_urn}}}" }'>
+                Cancel
+            </button>
+            <button class="enter-room-form-submit" type="submit">Enter</button>
+        </div>
+    </form>
+</div>

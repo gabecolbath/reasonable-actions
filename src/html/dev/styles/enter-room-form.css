@@ -1,0 +1,32 @@
+.enter-room-form {
+    width: 100%;
+    height: 100%;
+    padding: 20px;
+    
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-content: center;
+    gap: 30px;
+}
+
+.enter-room-form-buttons {
+    width: 100%;
+    height: auto;
+
+    display: flex;
+    justify-content: center;
+    align-content: center;
+}
+
+.member-name-input {
+    width: 100%;
+}
+
+.game-choice-input {
+    width: 100%;
+}
+
+.enter-room-form-cancel, .enter-room-form-submit {
+    width: 100%; 
+}

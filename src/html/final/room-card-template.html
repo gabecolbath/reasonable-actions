@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+        <link href="https://iosevka-webfonts.github.io/unhinted-iosevkacurly/IosevkaCurly-Unhinted.css" rel="stylesheet">
+
+        <link href="styles/index.css" rel="stylesheet" type="text/css">
+        <link href="styles/theme.css" rel="stylesheet" type="text/css">
+        <link href="styles/room-card.css" rel="stylesheet" type="text/css">
+    </head>
+    
+    <body>
+        <div class="room-card claymorphic-card">
+
+            <div class="room-card-logo claymorphic"></div>
+
+            <div class="room-card-name">{{host_name}}</div>
+
+            <div class="room-card-members room-card-bubble claymorphic">
+                <i class="bi bi-person-fill room-card-members-icon"></i>
+                <div class="room-card-members-ratio">
+                    <sup>{{member_count}}</sup>/<sub>{{member_capacity}}</sub>
+                </div>
+            </div>
+
+            <div class="room-card-availability room-card-bubble claymorphic">
+                {{#is_private}}<i class="bi bi-lock-fill"></i>{{/is_private}}
+                {{#is_public}}<i class="bi bi-unlock-fill"></i>{{/is_public}}
+            </div>
+
+        </div>
+    </body>
+</html>
+

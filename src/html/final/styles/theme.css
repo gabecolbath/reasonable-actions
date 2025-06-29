@@ -1,0 +1,62 @@
+:root {
+    --bg-main-gradient: linear-gradient(135deg, var(--palette-light) 0%, var(--palette-med) 100%);
+    --bg-card-gradient: linear-gradient(135deg, var(--palette-light) 0%, var(--palette-med) 100%);
+    --bg-accent-gradient: linear-gradient(135deg, var(--palette-red) 0%, var(--palette-red) 100%); 
+    --text-color: var(--palette-light);
+    --text-accent-color: var(--palette-red);
+    
+    /* --palette-purple: #887790; */
+    /* --palette-red: #c1867f; */
+    /* --palette-yellow: #ddc297; */
+    /* --palette-blue: #87aea6; */
+    /* --palette-beige: #e8ddcd; */
+    /* --palette-green: #909a74; */
+    /**/
+    /* --palette-dark: #b6b6b6; */
+    /* --palette-dark-blue: #718ca0; */
+    /* --palette-alt-blue: #80abb0; */
+    
+    --palette-light: #dddddd;
+    --palette-med: #d3d3d3;
+    --palette-blue: #5391ae;
+    --palette-green: #85b464;
+    --palette-yellow: #e2d269;
+    --palette-orange: #ea915e;
+    --palette-red: #bc677b;
+    --palette-purple: #7a4e8a;
+}
+
+.claymorphic {
+    backdrop-filter: blur(5px); 
+    background: var(--bg-card-gradient);
+    border-radius: 50px; 
+    box-shadow: 
+        35px 35px 68px 0px rgba(145, 192, 255, 0.5), 
+        35px 35px 68px 0px rgba(145, 192, 255, 0.5), 
+        inset -6px -6px 16px 0px rgba(145, 192, 255, 0.6), 
+        inset 0px 11px 28px 0px rgb(255, 255, 255);
+}
+
+.claymorphic-card {
+    backdrop-filter: blur(5px); 
+    background: var(--bg-card-gradient);
+    border-radius: 50px; 
+    box-shadow: 
+        35px 35px 68px 0px rgba(145, 192, 255, 0.5), 
+        35px 35px 68px 0px rgba(145, 192, 255, 0.5), 
+        inset -6px -6px 16px 0px rgba(145, 192, 255, 0.6), 
+        inset 0px 11px 28px 0px rgb(255, 255, 255);
+}
+
+.card {
+    width: 200px; 
+    height: 300px;
+    padding: 30px;
+    overflow: hidden;
+    
+    border-radius: 60px;
+
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+    background: var(--bg-card-gradient);
+}

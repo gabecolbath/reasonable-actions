@@ -1,0 +1,99 @@
+sub, sup {
+    font-size: 50%;
+}
+
+.room-list {
+    width: 100%;
+    height: 100%; 
+}
+
+.room-card {
+    cursor: pointer;
+
+    display: grid;
+    grid-template-rows: 3fr 2fr 1fr;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: 
+        'logo logo'
+        'name name'
+        'members availability';
+    align-items: center;
+    justify-items: center;
+}
+
+.room-card:hover {
+    transform: scale(1.05, 1.05);
+}
+
+.room-card-logo {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+
+    border-radius: 30px;
+
+    color: var(--text-color);
+    background-image: var(--bg-accent-gradient);
+
+    grid-area: logo;
+}
+
+.room-card-logo::before {
+    content: '';
+    position: absolute;
+    top: -50px;
+    left: -50px;
+    width: 200%;
+    height: 200%;
+    transform: rotate(15deg);
+    transform-origin: center;
+    z-index: 1;
+
+    background-image: url("images/sitting-cat.svg");
+    background-repeat: repeat;
+    background-size: 50px 50px;
+
+    opacity: 0.15;
+
+    pointer-events: none;
+}
+
+.room-card-name {
+    grid-area: name;
+    align-self: center;
+    justify-self: self-start; 
+
+    color: var(--text-accent-color);
+
+    max-width: 12ch;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: bold;
+    font-size: 1.25em;
+}
+
+.room-card-bubble {
+    border-radius: 100px;
+    padding: 10px;
+
+    color: var(--text-color);
+    background: var(--bg-accent-gradient);
+    
+    display: flex;
+    align-items: center;
+    gap: 5px; 
+}
+
+.room-card-members {
+    grid-area: members;
+    align-self: self-end;
+    justify-self: self-start;
+}
+
+.room-card-availability {
+    grid-area: availability;
+    align-self: self-end;
+    justify-self: self-end;
+}

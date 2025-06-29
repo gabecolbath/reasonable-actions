@@ -1,0 +1,62 @@
+.page-content {
+    width: 100%;
+    height: 100%;
+
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-columns: 1fr;
+    grid-template-areas: 
+        'top-bar'
+        'room-list';
+    justify-content: space-around;
+    align-content: center;
+    gap: 30px ;
+}
+
+.top-bar {
+    grid-area: 'top-bar';
+
+    width: 100%;
+    height: 70px ; 
+
+    border-radius: 100px;
+
+    background: var(--bg-main-gradient);
+}
+
+.room-list {
+    grid-area: 'room-list';
+
+    width: 100%;
+    height: 100%;
+    padding: 50px;
+    position: relative;
+    
+    border-radius: 90px;
+    overflow: auto;
+    background: var(--bg-main-gradient);
+
+    display: flex;
+    flex-wrap: wrap;
+    flex-direction: row;
+    justify-content: space-around;
+    align-content: flex-start;
+    gap: 20px;
+}
+
+.room-create-card {
+    cursor: pointer;
+
+    display: flex;
+    justify-content: center;
+    align-content: center;
+    align-items: center;
+    opacity: 30%;
+
+    color: var(--palette-dark);
+    background: var(--bg-card-gradient);
+}
+
+.room-create-card:hover {
+    opacity: 50%;
+}

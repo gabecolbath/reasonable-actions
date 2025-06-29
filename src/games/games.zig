@@ -8,6 +8,11 @@ const games = struct {
 };
 
 
+pub const GameError = error {
+    InvalidTagString,
+};
+
+
 pub const UpdateError = struct {
     
 };
@@ -23,6 +28,8 @@ pub const GameTag = enum {
 };
 
 
+const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const Client = server.Client;
 const Command = command.Command;
 const CommandMap = command.StaticCommandMap;
@@ -32,11 +39,8 @@ const RenderedHtml = []const u8;
 const Uuid = uuid.Uuid;
 
 
-pub const Updater = *const fn (allocator: Allocator, source: *Client) UpdateError!?Game.Scene;
-pub const Renderer = *const fn (allocator: Allocator, source: *Client) RenderError!Game.Render;
-
-
-const Allocator = std.mem.Allocator;
+pub const Updater = *const fn (allocator: Allocator, source: *Client) anyerror!?Game.Scene;
+pub const Renderer = *const fn (allocator: Allocator, source: *Client) anyerror!Game.Render;
 
 
 pub const Player = struct {
@@ -83,6 +87,8 @@ pub const Game = struct {
     players: PlayerActivityMap,
     waitlist: PlayerSet,
     cmd: CommandHandler,
+    current: Scene,
+    join: JoinStatus,
     state: *anyopaque, 
     
     const Self = @This();
@@ -96,6 +102,10 @@ pub const Game = struct {
         views: Renderer,
     };
 
+    pub const JoinStatus = enum {
+        locked, unlocked, wait,
+    };
+
     const PlayerActivityMap = struct {
         active: PlayerMap = PlayerMap{},
         inactive: PlayerMap = PlayerMap{},
@@ -106,6 +116,11 @@ pub const Game = struct {
             .scatty => games.scatty.GameState.init,
         }; 
         const state = try init_state(allocator);
+
+
+        const init_scene = switch (tag) {
+            .scatty => games.scatty.init_scene, 
+        };
 
         const cmd = switch (tag) {
             .scatty => CommandHandler{ .map = games.scatty.Commanads.map },
@@ -118,8 +133,17 @@ pub const Game = struct {
             .players = PlayerActivityMap{},
             .waitlist = PlayerSet{},
             .cmd = cmd,
+            .current = init_scene,
             .state = state,
         };
+    }
+
+    pub fn start(self: *Self, source: *Client) !void {
+        var arena = ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        
+        const views = try self.current.views(arena.allocator(), source);
+        try sendToClients(source, views);
     }
 
     pub fn deinit(self: *Self) void {
@@ -144,4 +168,22 @@ pub const Game = struct {
 
 fn orderScene(_: void, a: Game.Scene, b: Game.Scene) Order {
     return std.math.order(a.sequence, b.sequence);
+}
+
+
+pub fn toGameTag(str: []const u8) !GameTag {
+    const eql = std.ascii.eqlIgnoreCase;
+    
+    if (eql(str, @tagName(GameTag.scatty))) {
+        return GameTag.scatty;
+    } else return GameError.InvalidTagString;
+}
+
+
+fn sendToClients(source: *Client, rendered: Game.Render) !void {
+    var rendered_it = rendered.iterator();
+    while (rendered_it.next()) |view| {
+        const targeted_client = source.app.client(view.key_ptr.*) catch continue;
+        targeted_client.conn.write(view.value_ptr.*) catch continue;
+    }
 }

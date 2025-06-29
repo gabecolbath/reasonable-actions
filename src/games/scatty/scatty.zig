@@ -13,6 +13,8 @@ const CommandMap = command.CommandMap;
 const CommandHandler = command.Handler;
 const Game = games.Game;
 const Player = games.Player;
+const Room = server.Room;
+const Member = server.Member;
 
 
 const Options = struct {
@@ -120,9 +122,17 @@ const Updates = struct {
 
 const Renderers = struct {
     fn lobby(allocator: Allocator, source: *Client) !Game.Render {
-        _ = allocator;
-        _ = source;
-        return Game.Render{};
+        const lobby_html: []const u8 = @embedFile("html/lobby.html");
+
+        const room_clients = try source.clientsInRoom(allocator);
+        var render = Game.Render{};
+        try render.ensureTotalCapacity(allocator, room_clients.len);
+        
+        for (room_clients) |client| {
+            render.putAssumeCapacity(client.uid.member, lobby_html);
+        }
+
+        return render;
     }
 
     fn answering(allocator: Allocator, source: *Client) !Game.Render {
@@ -143,26 +153,14 @@ pub const Commanads = struct {
         _ = cmd;
     }
 
-    fn start(allocator: Allocator, cmd: Command) !void {
-        const lobby_template: []const u8 = @embedFile("html/lobby.html");
-        
-        const source_room = try cmd.source.room();
-        const source_game = source_room.game orelse return server.ServerError.NoRunningGame;
-        const state: *GameState = @ptrCast(@alignCast(source_game.state)); 
-
-        const lobby = try mustache.allocRenderText(allocator, lobby_template, .{
-            .is_host = false,
-            .opt = .{
-                .round = state.opts.rounds,
-                .categories_per_round = state.opts.categories_per_round,
-                .repeat_categories = state.opts.repeat_categories,
-                .answering_time_limit = state.opts.answering_time_limit,
-                .voting_time_limit = state.opts.voting_time_limit,
-                .alliteration_points = state.opts.alliteration_points,
-                .weighted_scores = state.opts.weighted_scores,
-            }
-        });
-        
-        try cmd.source.conn.write(lobby); 
+    fn start(_: Allocator, cmd: Command) !void {
+        const source_game = try cmd.source.game();
+        try source_game.start(cmd.source);
     }
+};
+
+
+pub const init_scene = Game.Scene{
+    .sequence = 0,
+    .views = Renderers.lobby,
 };

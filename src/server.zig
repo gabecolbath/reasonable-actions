@@ -18,8 +18,6 @@ pub const ServerError = error {
     AtRoomMemberCapacity,
     AtServerMemberCapacity,
     AtServerRoomCapacity,
-    NoRunningGame,
-    MissingPlayer,
 };
 
 
@@ -47,7 +45,7 @@ pub const JoinResult = struct {
 pub const Member = struct {
     uid: Identifiers,
     name: []const u8,
-    player: ?*Player = null,
+    player: *Player,
     
     const Self = @This();
     const Identifiers = struct {
@@ -55,7 +53,7 @@ pub const Member = struct {
         room: Application.RoomUid,
     };
 
-    pub fn init(allocator: Allocator, name: []const u8, uid: struct {
+    pub fn init(allocator: Allocator, player: *Player, name: []const u8, uid: struct {
         member: ?Uuid = null,
         room: ?Uuid = null,
     }) !Self {
@@ -63,8 +61,9 @@ pub const Member = struct {
         errdefer allocator.free(owned_name); 
 
         return Self{
-            .uid = .{ .self = uid.member orelse uuid.v7.new(), .room = uid.room orelse uuid.v7.new() },
+            .player = player,
             .name = owned_name,
+            .uid = .{ .self = uid.member orelse uuid.v7.new(), .room = uid.room orelse uuid.v7.new() },
         };
     }
 
@@ -82,7 +81,7 @@ pub const Member = struct {
 
 pub const Room = struct {
     uid : Identifiers,
-    game: ?*Game = null,
+    game: *Game,
     
     const Self = @This();
     const Identifiers = struct {
@@ -91,7 +90,7 @@ pub const Room = struct {
         members: *Application.MemberSet, 
     };
 
-    pub fn init(allocator: Allocator, uid: struct {
+    pub fn init(allocator: Allocator, game: *Game, uid: struct {
         room: ?Uuid = null,
         host: ?Uuid = null,
     }) !Self {
@@ -100,6 +99,7 @@ pub const Room = struct {
         try owned_members.ensureTotalCapacity(allocator, conf.room_members_capacity);
 
         return Self{
+            .game = game,
             .uid = .{ .self = uid.room orelse uuid.v7.new(), .host = uid.host orelse uuid.v7.new(), .members = owned_members },
         };
     }
@@ -185,14 +185,13 @@ pub const Client = struct {
     }
 
     pub fn clientMessage(self: *Self, data: []const u8) !void {
-        const source_room = try self.room();
-        if (source_room.game) |game| {
-            var cmd_arena = ArenaAllocator.init(self.app.allocator);
-            defer cmd_arena.deinit();
+        var cmd_arena = ArenaAllocator.init(self.app.allocator);
+        defer cmd_arena.deinit();
 
-            const cmd = try game.cmd.parseCommand(cmd_arena.allocator(), data, self);
-            try game.cmd.exec(cmd_arena.allocator(), cmd);
-        } else return ServerError.NoRunningGame;
+        const source_game = try self.game();
+        const cmd = try source_game.cmd.parseCommand(cmd_arena.allocator(), data, self);
+
+        try source_game.cmd.exec(cmd_arena.allocator(), cmd);
     }
 
     pub fn close(self: *Self) void {
@@ -225,9 +224,29 @@ pub const Client = struct {
         return try self.app.host(self.uid.room);
     }
 
-    pub fn game(self: *Self) !Game {
-        const client_room = try self.room();
-        return client_room.game orelse ServerError.NoRunningGame;
+    pub fn game(self: *Self) !*Game {
+        const source_room = try self.room();
+        return source_room.game; 
+    }
+
+    pub fn player(self: *Self) !*Player {
+        const source_member = try self.member();
+        return source_member.player;
+    }
+
+    pub fn clientsInRoom(self: *Self, allocator: Allocator) ![]*Client {
+        const source_room = try self.room();
+        const room_members = source_room.uid.members.keys();
+        
+        var result = try ArrayListUnmanaged(*Client).initCapacity(allocator, room_members.len);
+        errdefer result.deinit(allocator);
+
+        for (room_members) |member_uid| {
+            const room_client = self.app.client(member_uid) catch continue;
+            result.appendAssumeCapacity(room_client);
+        }
+
+        return try result.toOwnedSlice(allocator);
     }
 };
 
@@ -288,35 +307,30 @@ pub const Application = struct {
         return self.clients.get(uid) orelse return ServerError.ClientNotFound;
     }
 
-
-    pub fn createRoom(self: *Self, host_name: []const u8) !JoinResult {
+    pub fn createRoom(self: *Self, game_choice: GameTag, host_name: []const u8) !JoinResult {
         try self.checkRoomCapacity();
         try self.checkMemberCapacity();
         
-        const new_game = try Game.new(self.allocator, .scatty);
+        const new_game = try Game.new(self.allocator, game_choice);
         errdefer {
             new_game.deinit();
             self.allocator.destroy(new_game);
-            std.debug.print("Failed to create game.\n", .{});
         }
         const new_player = try Player.new(self.allocator, new_game);
         errdefer {
             new_player.deinit(self.allocator);
             self.allocator.destroy(new_player);
-            std.debug.print("Failed to create player.\n", .{});
         }
 
-        var new_member = try Member.init(self.allocator, host_name, .{});
+        var new_member = try Member.init(self.allocator, new_player, host_name, .{});
         errdefer new_member.deinit(self.allocator);
-        new_member.player = new_player;
 
-        var new_room = try Room.init(self.allocator, .{
+        var new_room = try Room.init(self.allocator, new_game, .{
             .room = new_member.uid.room,
             .host = new_member.uid.self,
         });
         errdefer new_room.deinit(self.allocator);
         try new_room.assignMember(new_member.uid.self);
-        new_room.game = new_game;
 
         self.members.putAssumeCapacity(new_member.uid.self, new_member);
         self.rooms.putAssumeCapacity(new_room.uid.self, new_room);
@@ -330,12 +344,18 @@ pub const Application = struct {
     pub fn joinRoom(self: *Self, member_name: []const u8, uid: struct { room: RoomUid }) !JoinResult {
         try self.checkMemberCapacity();
 
-        const new_member = try Member.init(self.allocator, member_name, .{
+        const room_joining = try self.room(uid.room);
+        
+        const new_player = try Player.new(self.allocator, room_joining.game);
+        errdefer {
+            new_player.deinit(self.allocator);
+            self.allocator.destroy(new_player);
+        }
+
+        const new_member = try Member.init(self.allocator, new_player, member_name, .{
             .room = uid.room,
         });
         errdefer new_member.deinit(self.allocator);
-        
-        const room_joining = try self.room(uid.room);
         try room_joining.assignMember(new_member.uid.self);
 
         self.members.putAssumeCapacity(new_member.uid.self, new_member);
@@ -390,8 +410,8 @@ pub fn start() !void {
     for (routes.map.post.keys(), routes.map.post.values()) |path, action|
         router.post(path, action, .{});
 
-    const kitty_room_result = try app.createRoom("Kitty");
-    const peggy_room_result = try app.createRoom("Peggy");
+    const kitty_room_result = try app.createRoom(.scatty, "Kitty");
+    const peggy_room_result = try app.createRoom(.scatty, "Peggy");
     
     const kitty = try app.host(kitty_room_result.room.uid.self);
     const peggy = try app.host(peggy_room_result.room.uid.self);

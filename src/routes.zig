@@ -244,16 +244,16 @@ pub const Post = struct {
     
         const form_data = try req.formData();
         const member_name = form_data.get("member-name") orelse return RequestError.InvalidFormData;
-        const game_choice = form_data.get("game-choice") orelse return RequestError.InvalidFormData;
+        const req_game = form_data.get("game-choice") orelse return RequestError.InvalidFormData;
 
-        const game_tag: GameTag = if (std.mem.eql(u8, game_choice, "Scatty")) .scatty else return RequestError.InvalidFormData;
-        
-        const create_result = try app.createRoom(member_name);
+        const game_choice = try games.toGameTag(req_game);
+
+        const create_result = try app.createRoom(game_choice, member_name);
         
         const room_page = try mustache.allocRenderText(res.arena, room_page_template, .{
             .room_urn = uuid.urn.serialize(create_result.room.uid.self),
             .member_urn = uuid.urn.serialize(create_result.member.uid.self),
-            .game_choice = game_tag,
+            .game_choice = game_choice,
         });
 
         res.content_type = .HTML;

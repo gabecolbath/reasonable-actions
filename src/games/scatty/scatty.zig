@@ -1,23 +1,28 @@
 const std = @import("std");
+
+
 const games = @import("../games.zig");
-const server = @import("../../server.zig");
+const renders = @import("render.zig");
+const updates = @import("update.zig");
+const starts = @import("start.zig");
 const categories = @import("categories.zig");
-const command = @import("../../command.zig");
-const mustache = @import("mustache");
+
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const Client = server.Client;
-const Command = command.Command;
-const CommandMap = command.CommandMap;
-const CommandHandler = command.Handler;
-const Game = games.Game;
-const Player = games.Player;
-const Room = server.Room;
-const Member = server.Member;
+const ArrayListUnmanaged = std.ArrayListUnmanaged; 
 
 
-const Options = struct {
+const Event = games.Event;
+const GameInterface = games.Game;
+const Sources = games.RoomSource;
+const Controller = GameInterface.Controller;
+const GameSetup = GameInterface.Setup;
+const Scene = GameInterface.Scene;
+const View = GameInterface.View;
+
+
+pub const Options = struct {
     rounds: u8 = 3,
     categories_per_round: u8 = 12,
     repeat_categories: bool = true,
@@ -33,134 +38,75 @@ const Options = struct {
 };
 
 
-pub const PlayerState = struct {
-    score: Score = .{},
-    answers: [][]const u8,
-
-    const Self = @This(); 
-    
-    const Score = struct {
-        round: u16 = 0,
-        game: u16 = 0,
-        cumulative: u16 = 0,
+pub const State = struct {
+    pub const Game = struct {
+        round: u8 = 0,
+        categories: categories.Round,
     };
 
-    pub fn init(allocator: Allocator) !*Self {
-        const self = try allocator.create(Self);
-        
-        var answers = try allocator.alloc([]const u8, 1);
-        answers[0] = "test";
-        self.* = .{ .answers = answers };
-        
-        return self; 
-    }
+    pub const Player = struct {
+        score: Score = .{},
+        answers: Answers,
 
-    pub fn deinit(ptr: *anyopaque, allocator: Allocator) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
+        const Score = struct {
+            round: u16 = 0,
+            game: u16 = 0,
+            cumulative: u16 = 0,
+        };
 
-        for (self.answers) |answer| {
-            allocator.free(answer);
-        }
-        allocator.free(self.answers);
-        allocator.destroy(self);
-    }
-}; 
+        const Answers = struct {
+            arena: ArenaAllocator,
+            list: ArrayListUnmanaged([]const u8) = .{},  
 
+            pub fn load(self: *Answers, allocator: Allocator, ans: [][]const u8) !void {
+                self.list.ensureTotalCapacity(allocator, self.list.items.len + ans.len);
+                for (ans) |answer| {
+                    const processed = self.arena.allocator().dupe(u8, answer) catch "";
+                    self.list.appendAssumeCapacity(processed);
+                }
+            }
 
-pub const GameState = struct {
-    opts: Options = .{},
-    round: u8 = 0,
-    categories: categories.Round,
+            pub fn clear(self: *Answers, allocator: Allocator) void {
+                self.list.clearAndFree(allocator);
+                _ = self.arena.reset(.free_all);
+            }
+        };
 
-    const Self = @This();
+    };
+};
 
-    pub fn init(allocator: Allocator) !*Self {
-        const self = try allocator.create(Self);
-        self.* = .{ .categories = try categories.Round.init(allocator, .{
-            .method = if (self.opts.repeat_categories) .repeat else .no_repeat,
-            .num_categories = @intCast(self.opts.categories_per_round),
-        }) };
-        
-        return self; 
-    }
-
-    pub fn deinit(ptr: *anyopaque, allocator: Allocator) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        self.categories.deinit();
-        
-        allocator.destroy(self); 
-    }
+pub const controllers = Controller{
+    .setup = setup,
+    .start = start,
+    .end = end,
 };
 
 
-const Updates = struct {
-    fn lobby(_: Allocator, source: *Client) !?Game.Scene {
-        const room = try source.room();
-        if (!room.isHost(source.uid.member)) {
-            return games.GameError.UnauthorizedAction; 
-        }
-    
-        return Game.Scene{ .views = Renderers.answering };
-    }
+pub fn setup(allocator: Allocator) !GameSetup {
+    const opts = try allocator.create(Options);
+    errdefer allocator.destroy(opts);
+    opts.* = Options{};
 
-    fn answering(allocator: Allocator, source: *Client) !?Game.Scene {
-        _ = allocator;
-        _ = source;
-    }
+    const state = try allocator.create(State.Game);
+    errdefer allocator.destroy(state);
+    state.* = State.Game{ .round = try categories.Round.init(allocator, opts) };
 
-    fn voting(allocator: Allocator, source: *Client) !?Game.Scene {
-        _ = allocator;
-        _ = source; 
-    }
-
-    fn scoring(allocator: Allocator, source: *Client) !?Game.Scene {
-        _ = allocator;
-        _ = source;
-    }
-};
+    return GameSetup{
+        .opts = opts,
+        .state = state,
+    };
+}
 
 
-const Renderers = struct {
-    fn lobby(allocator: Allocator, source: *Client) !Game.Render {
-        const lobby_html: []const u8 = @embedFile("html/lobby.html");
+pub fn start(_: Allocator, _: Sources) !Scene {
+    return Scene{ 
+        .start = starts.lobby,
+        .update = updates.lobby,
+        .render = renders.lobby,
+    };
+}
 
-        const room_clients = try source.clientsInRoom(allocator);
-        var render = Game.Render{};
-        try render.ensureTotalCapacity(allocator, room_clients.len);
-        
-        for (room_clients) |client| {
-            render.putAssumeCapacity(client.uid.member, lobby_html);
-        }
-
-        return render;
-    }
-
-    fn answering(allocator: Allocator, source: *Client) !Game.Render {
-        _ = allocator;
-        _ = source;
-        return Game.Render{};
-    }
-};
-
-pub const Commanads = struct {
-    pub var map = CommandMap.initComptime(.{
-        .{ "start", start },
-        .{ "update", update },
-    });
-
-    fn update(allocator: Allocator, cmd: Command) !void {
-        _ = allocator;
-        _ = cmd;
-    }
-
-    fn start(_: Allocator, cmd: Command) !void {
-        const source_game = try cmd.source.game();
-        try source_game.start(cmd.source);
-    }
-};
-
-
-pub const init_scene = Game.Scene{
-    .sequence = 0,
-    .views = Renderers.lobby,
-};
+pub fn end(_: Allocator, data: GameSetup) !void {
+    const resolved_state: State.Game = @ptrCast(@alignCast(data.state));
+    resolved_state.categories.deinit();
+}

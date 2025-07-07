@@ -1,263 +1,213 @@
 const std = @import("std");
 const uuid = @import("uuid");
 const httpz = @import("httpz");
-const mustache = @import("mustache");
-const conf = @import("config.zig");
+const mus = @import("mustache");
+
+const Action = httpz.Action;
+const Allocator = std.mem.Allocator;
+const Request = httpz.Request;
+const Response = httpz.Response; 
+const StaticStringMap = std.StaticStringMap;
+const Uuid = uuid.Uuid;
+
+
 const server = @import("server.zig");
-const elements = @import("rendering/elements.zig");
-const attributes = @import("rendering//attributes.zig");
 const games = @import("games/games.zig");
+const conf = @import("config.zig");
+
+const App = server.App;
+const Member = server.Member;
+const Room = server.Room;
+const Client = server.Client; 
+const Game = games.Game;
+const Player = games.Player;
+const RouteMap = StaticStringMap(Action(*App));
+
 
 pub const RequestError = error {
-    InvalidParameter,
+    InvalidQuery,
+    InvalidParamter,
     InvalidFormData,
 };
 
-const Allocator = std.mem.Allocator;
-const App = server.Application;
-const Html = []const u8;
-const Elem = elements.Element;
-const GameTag = games.GameTag;
-const Request = httpz.Request;
-const Response = httpz.Response;
-const RouteMap = std.StaticStringMap(httpz.Action(*App));
-const Uuid = uuid.Uuid;
-const Urn = uuid.urn.Urn;
 
 pub const map = .{
     .get = RouteMap.initComptime(.{
-        .{ "/", Get.index },
-        .{ "/rooms/join/list", Get.roomsJoinList },
-        .{ "/rooms/join/card", Get.roomsJoinCard },
-        .{ "/rooms/join/form", Get.roomsJoinForm },
-        .{ "/rooms/create/card", Get.roomsCreateCard },
-        .{ "/rooms/create/form", Get.roomsCreateForm },
-        .{ "/rooms/enter/:room_urn/:member_urn/:game_choice", Get.roomsEnter },
-        .{ "/styling/index", Get.indexStyling },
-        .{ "/styling/room-card", Get.roomCardStyling },
-        .{ "/styling/rooms-page", Get.roomsPageStyling },
-        .{ "/styling/enter-room-form", Get.enterRoomFormStyling },
-        .{ "/debug/room-card-template", Get.debugRoomCardTemplate },
+        .{ "/", Get.@"/" }, 
+        .{ "/rooms", Get.@"/rooms" },
+        .{ "/rooms/join/card", Get.@"rooms/join/card" },
+        .{ "/rooms/join/card/form", Get.@"rooms/join/card/form" },
+        .{ "/rooms/create/card", Get.@"rooms/create/card" }, 
+        .{ "/rooms/create/card/form", Get.@"rooms/create/card/form" },
     }),
     .post = RouteMap.initComptime(.{
-        .{ "rooms/join", Post.joinRoom },
-        .{ "rooms/create", Post.createRoom },
+        .{ "/rooms/join", Post.@"/rooms/join" },
+        .{ "/rooms/create", Post.@"/rooms/create" },
     }),
 };
 
-pub const Get = struct {
-    pub fn index(_: *App, _: *Request, res: *Response) !void {
-        const index_page_template = @embedFile("html/dev/index-page-template.html");
-        const rooms_page = @embedFile("html/dev/rooms-page.html"); 
 
-        const index_page = try mustache.allocRenderText(res.arena, index_page_template, .{
-            .page = rooms_page, 
+const Get = struct {
+    fn @"/"(_: *App, _: *Request, res: *Response) !void {
+        const new_page_template_html = @embedFile("html/dev/new-page-template.html");
+        const rooms_page_html = @embedFile("html/dev/rooms-page.html");
+        
+        const new_page_html = try mus.allocRenderText(res.arena, new_page_template_html, .{
+            .page = rooms_page_html,
         });
 
         res.content_type = .HTML;
         res.status = 200;
-        res.body = index_page;
+        res.body = new_page_html;
     }
 
-    pub fn roomsJoinList(app: *App, _: *Request, res: *Response) !void {
-        const room_card_template = @embedFile("html/dev/room-card-template.html");
-        
-        const rooms = app.rooms.values();
+    fn @"/rooms"(app: *App, _: *Request, res: *Response) !void {
+        const rooms_card_template_html = @embedFile("html/dev/room-card-template.html");
+        const rooms_join_card_content_html = ""; //TODO
+        const rooms_create_card_content_html = ""; //TODO
 
+        const rooms_create_card_html = try mus.allocRenderText(res.arena, rooms_card_template_html, .{
+            .content = rooms_create_card_content_html,
+        });
+        
+        const rooms_join_card_template_html = try mus.allocRenderText(res.arena, rooms_card_template_html, .{
+            .content = rooms_join_card_content_html,
+        });
+        const rooms_join_card_template = try mus.parseText(res.arena, rooms_join_card_template_html, .{});
+
+        
+        const rooms = app.rooms.map.values();
+        
         res.content_type = .HTML;
         res.status = 200;
-        const res_out = res.writer();
+        const resout = res.writer();
+
+        try resout.writeAll(rooms_create_card_html);
+        
         for (rooms) |room| {
-            const room_host = try app.host(room.uid.self);
-            const room_card = try mustache.allocRenderText(res.arena, room_card_template, .{
-                .room_urn = uuid.urn.serialize(room.uid.self), 
-                .host_name = room_host.name,
-                .member_count = room.uid.members.count(),
+            const room_card_join_html = try mus.allocRender(res.arena, rooms_join_card_template, .{
+                .room_urn = uuid.urn.serialize(room.uid),
+                .host_name = room.host.member.name,
+                .member_count = room.clients.items.len,
                 .member_capacity = conf.room_members_capacity,
-                .is_private = true,
+                .is_private = room.isPrivate(),
             });
             
-            try res_out.writeAll(room_card);
+            resout.writeAll(room_card_join_html) catch continue;
         }
     }
 
-    pub fn roomsJoinCard(app: *App, req: *Request, res: *Response) !void {
-        const room_card_template = @embedFile("html/dev/room-card-template.html");
+    fn @"rooms/join/card"(app: *App, req: *Request, res: *Response) !void {
+        const rooms_card_template_html = @embedFile("html/dev/room-card-template.html");
+        const rooms_join_card_content_html = ""; //TODO
+        
+        const rooms_join_card_template_html = try mus.allocRenderText(res.arena, rooms_card_template_html, .{
+            .content = rooms_join_card_content_html,
+        });
         
         const query = try req.query();
-        const req_room_urn = query.get("room-urn") orelse return RequestError.InvalidFormData;
-        const req_room_uid = try uuid.urn.deserialize(req_room_urn);
-        const req_room = try app.room(req_room_uid);
-        const req_host = try app.host(req_room_uid);
+        const room_urn = query.get("room-urn") orelse return RequestError.InvalidQuery;
 
-        const room_card = try mustache.allocRenderText(res.arena, room_card_template, .{
-            .room_urn = req_room_urn,
-            .host_name = req_host.name,
-            .member_count = req_room.uid.members.count(),
+        const room_uid = try uuid.urn.deserialize(room_urn);
+        const room = try app.getRoom(room_uid);
+
+        res.content_type = .HTML;
+        res.status = 200;
+        res.body = try mus.allocRenderText(res.arena, rooms_join_card_template_html, .{
+            .room_urn = room_urn,
+            .host_name = room.host.member.name,
+            .member_count = room.clients.items.len,
             .member_capacity = conf.room_members_capacity,
-            .is_private = true,
+            .is_private = room.isPrivate(),
         });
-
-        res.content_type = .HTML;
-        res.status = 200;
-        res.body = room_card;
     }
 
-    pub fn roomsJoinForm(app: *App, req: *Request, res: *Response) !void {
-        const join_room_form_template = @embedFile("html/dev/join-room-form-template.html");
+    fn @"rooms/join/card/form"(_: *App, req: *Request, res: *Response) !void {
+        const rooms_join_card_form_template_html = ""; //TODO
         
         const query = try req.query();
-        const req_room_urn = query.get("room-urn") orelse return RequestError.InvalidFormData;
-        const req_room_uid = try uuid.urn.deserialize(req_room_urn);
-        _ = app.room(req_room_uid) catch {
-            res.body = "This Room Does Not Exist. Try Refreshing the Page.";
-            return;
-        };
+        const room_urn = query.get("room-urn") orelse return RequestError.InvalidQuery;
         
-        const join_room_form = try mustache.allocRenderText(res.arena, join_room_form_template, .{
-            .room_urn = req_room_urn,
+        const rooms_join_card_form = try mus.allocRenderText(res.arena, rooms_join_card_form_template_html, .{
+            .room_urn = room_urn,
         });
-
-        res.content_type = .HTML;
-        res.status = 200;
-        res.body = join_room_form;
-    }
-
-    pub fn roomsEnter(app: *App, req: *Request, res: *Response) !void {
-        const req_member_urn = req.param("member_urn") orelse return RequestError.InvalidParameter;
-        const req_room_urn = req.param("room_urn") orelse return RequestError.InvalidParameter;
-        const req_game = req.param("game_choice") orelse return RequestError.InvalidParameter;
-        const req_member_uid = try uuid.urn.deserialize(req_member_urn);
-        const req_room_uid = try uuid.urn.deserialize(req_room_urn); 
-
-        const req_game_tag: GameTag = if (std.mem.eql(u8, req_game, @tagName(GameTag.scatty))) .scatty else return RequestError.InvalidParameter;
-
-        const ctx = server.Client.Context{
-            .app = app,
-            .game = req_game_tag,
-            .uid = .{
-                .room = req_room_uid,
-                .member = req_member_uid,
-            }
-        };
-        
-        _ = try httpz.upgradeWebsocket(server.Client, req, res, &ctx);
-    }
-
-    pub fn roomsCreateCard(_: *App, _: *Request, res: *Response) !void {
-        const create_room_card = @embedFile("html/dev/create-room-card.html");
         
         res.content_type = .HTML;
         res.status = 200;
-        res.body = create_room_card;
+        res.body = rooms_join_card_form;
     }
 
-    pub fn roomsCreateForm(_: *App, _: *Request, res: *Response) !void {
-        const create_room_form = @embedFile("html/dev/create-room-form-template.html");
-        
-        res.content_type = .HTML;
-        res.status = 200;
-        res.body = create_room_form;
-    }
-    
-    pub fn debugRoomCardTemplate(_: *App, _: *Request, res: *Response) !void {
-        const page_template = @embedFile("html/dev/index-page-template.html");
-        const card_template = @embedFile("html/dev/room-card-template.html");
+    fn @"rooms/create/card"(_: *App, _: *Request, res: *Response) !void {
+        const rooms_card_template_html = @embedFile("html/dev/room-card-template.html");
+        const rooms_create_card_content_html = ""; //TODO
 
-        const card = try mustache.allocRenderText(res.arena, card_template, .{
-            .room_name = "Kitty Room",
-            .member_count = 3,
-            .member_capacity = conf.room_members_capacity, 
-            .is_private = true,
+        const rooms_create_card = try mus.allocRenderText(res.arena, rooms_card_template_html, .{
+            .content = rooms_create_card_content_html,
         });
+        
+        res.content_type = .HTML;
+        res.status = 200;
+        res.body = rooms_create_card;
+    }
 
-        const page = try mustache.allocRenderText(res.arena, page_template, .{
-            .page = card, 
-        });
+    fn @"rooms/create/card/form"(_: *App, _: *Request, res: *Response) !void {
+        const rooms_create_card_form = ""; //TODO
 
         res.content_type = .HTML;
         res.status = 200;
-        res.body = page;
-    }
-
-    pub fn indexStyling(_: *App, _: *Request, res: *Response) !void {
-        const stylesheet = @embedFile("html/dev/styles/index.css");
-        
-        res.content_type = .CSS;
-        res.status = 200;
-        res.body = stylesheet;
-    }
-
-    pub fn roomCardStyling(_: *App, _: *Request, res: *Response) !void {
-        const stylesheet = @embedFile("html/dev/styles/room-card.css");
-        
-        res.content_type = .CSS;
-        res.status = 200;
-        res.body = stylesheet;
-    }
-
-    pub fn roomsPageStyling(_: *App, _: *Request, res: *Response) !void {
-        const stylesheet = @embedFile("html/dev/styles/rooms-page.css");
-        
-        res.content_type = .CSS;
-        res.status = 200;
-        res.body = stylesheet;
-    }
-
-    pub fn enterRoomFormStyling(_: *App, _: *Request, res: *Response) !void {
-        const stylesheet = @embedFile("html/dev/styles/enter-room-form.css");
-        
-        res.content_type = .CSS;
-        res.status = 200;
-        res.body = stylesheet;
+        res.body = rooms_create_card_form;
     }
 };
 
-pub const Post = struct {
-    pub fn joinRoom(app: *App, req: *Request, res: *Response) !void {
-        const room_page_template = @embedFile("html/dev/room-page.html");
-        
-        const form_data = try req.formData();
+const Post = struct {
+    fn @"rooms/join"(app: *App, req: *Request, res: *Response) !void {
+        const form_data = try req.formData();       
+        const member_name = form_data.get("member-name") orelse return RequestError.InvalidFormData; 
         const room_urn = form_data.get("room-urn") orelse return RequestError.InvalidFormData;
-        const member_name = form_data.get("member-name") orelse "???";
         
-        const req_room_uid = try uuid.urn.deserialize(room_urn);
-        const join_result = app.joinRoom(member_name, .{ .room = req_room_uid }) catch |err| {
-            if (err == server.ServerError.AtRoomMemberCapacity) {
-                res.body = "At Capacity for this room. Try another.";
-                return;
-            } else return err;
-        }; 
+        const room_uid = try uuid.urn.deserialize(room_urn); 
+        const room = try app.getRoom(room_uid);
+        const game = try room.getGame();
 
-        const room_page = try mustache.allocRenderText(res.arena, room_page_template, .{
-            .room_urn = uuid.urn.serialize(join_result.room.uid.self),
-            .member_urn = uuid.urn.serialize(join_result.member.uid.self),
-        });
+        const new_member = try Member.init(app.allocator, member_name); 
+        errdefer new_member.deinit(app.allocator);
 
-        res.content_type = .HTML;
-        res.status = 200;
-        res.body = room_page;
+        const ws_context = Client.Context{
+            .app = app,
+            .room = room,
+            .member = new_member,
+            .game_tag = game.tag,
+        };
+
+        _ = try httpz.upgradeWebsocket(Client, req, res, &ws_context);
     }
 
-    pub fn createRoom(app: *App, req: *Request, res: *Response) !void {
-        const room_page_template = @embedFile("html/dev/room-page.html");
-    
+    fn @"rooms/create"(app: *App, req: *Request, res: *Response) !void {
         const form_data = try req.formData();
         const member_name = form_data.get("member-name") orelse return RequestError.InvalidFormData;
-        const req_game = form_data.get("game-choice") orelse return RequestError.InvalidFormData;
-
-        const game_choice = try games.toGameTag(req_game);
-
-        const create_result = try app.createRoom(game_choice, member_name);
+        const game_choice = form_data.get("game-choice") orelse return RequestError.InvalidFormData;
+        const password = form_data.get("password");
         
-        const room_page = try mustache.allocRenderText(res.arena, room_page_template, .{
-            .room_urn = uuid.urn.serialize(create_result.room.uid.self),
-            .member_urn = uuid.urn.serialize(create_result.member.uid.self),
-            .game_choice = game_choice,
-        });
+        const privacy: Room.Privacy = set: {
+            if (password) |pw| {
+                break :set .{ .private = .{ .pw = pw } };
+            } else {
+                break :set .public;
+            }
+        };
 
-        res.content_type = .HTML;
-        res.status = 200;
-        res.body = room_page;
+        const new_room = try Room.init(app.allocator, privacy); 
+        errdefer new_room.deinit(app.allocator); 
+        const new_member = try Member.init(app.allocator, member_name);
+        errdefer new_member.deinit(app.allocator); 
+
+        const ws_context = Client.Context{
+            .app = app,
+            .room = new_room,
+            .member = new_member,
+            .game_tag = try games.toGameTag(game_choice),
+        };
+
+        _ = try httpz.upgradeWebsocket(Client, req, res, &ws_context);
     }
-};
+}; 

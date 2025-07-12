@@ -20,11 +20,15 @@ const conf = @import("config.zig");
 const comm = @import("command.zig");
 const games = @import("games/games.zig");
 const cli = @import("client.zig");
+const builtin = @import("builtin.zig");
+const routes = @import("routes.zig");
 
 const Client = cli.Client;
+const Command = comm.Command;
+const CommandMap = comm.CommandMap;
 const RoomMap = AutoArrayHashMapUnmanaged(Uuid, Room);
 const MemberMap = AutoArrayHashMapUnmanaged(Uuid, Member);
-const ClientList = ArrayListUnmanaged(*Client);
+const ClientMap = AutoArrayHashMapUnmanaged(Uuid, *Client);
 
 
 pub const ServerError = error {
@@ -47,7 +51,7 @@ pub const Room = struct {
     const Self = @This();
 
     pub const Attached = struct {
-        clients: ClientList = ClientList{},
+        clients: ClientMap = ClientMap{},
         game: ?Game = null,
     };
 
@@ -57,13 +61,13 @@ pub const Room = struct {
     };
 
     pub fn init(allocator: Allocator, privacy: Privacy) !Room {
-        var clients = ArrayListUnmanaged(*Client){};
+        var clients = ClientMap{};
         try clients.ensureTotalCapacity(allocator, conf.room_members_capacity);
 
         return Self{
             .uid = uuid.v7.new(),
             .privacy = privacy,
-            .clients = clients,
+            .attached = .{ .clients = clients },
         };
     }
 
@@ -72,9 +76,8 @@ pub const Room = struct {
     }
 
     pub fn dropAttached(self: *Self, allocator: Allocator) void {
-        const clients = self.attached.clients;
         if (self.memberCapacity() > 0)
-            clients.clearAndFree(allocator);
+            self.attached.clients.clearAndFree(allocator);
         if (self.attached.game) |game| {
             game.deinit(allocator);
         }
@@ -82,7 +85,7 @@ pub const Room = struct {
 
     pub fn attachClient(self: *Self, source: *Client) void {
         if (self.memberCount() < self.memberCapacity()) {
-            self.clients.appendAssumeCapacity(source);
+            self.attached.clients.putAssumeCapacity(source.member.uid, source);
         } else return;
     }
 
@@ -91,9 +94,8 @@ pub const Room = struct {
     }
 
     pub fn host(self: *Self) *Client {
-        const sources = self.attached.clients.items;
-        if (sources.len > 0) {
-            return sources[0];
+        if (self.memberCount() > 0) {
+            return self.attached.clients.values()[0];
         } else return ServerError.EmptyRoom;
     }
 
@@ -105,11 +107,11 @@ pub const Room = struct {
     }
 
     pub fn memberCount(self: *const Self) usize {
-        return self.attached.clients.items.len;
+        return self.attached.clients.count();
     }
 
     pub fn memberCapacity(self: *const Self) usize {
-        return self.attached.clients.capacity;
+        return self.attached.clients.capacity();
     }
 };
 
@@ -190,6 +192,9 @@ pub const App = struct {
     rooms: ThreadSafeRoomMap = ThreadSafeRoomMap{},
     members: ThreadSafeMemberMap = ThreadSafeMemberMap{},
 
+    const Self = @This();
+    const WebsocketHandler = Client;
+
     const ThreadSafeRoomMap = struct {
         map: RoomMap = RoomMap{},
         mutex: Mutex = Mutex{},
@@ -199,8 +204,6 @@ pub const App = struct {
         map: MemberMap = MemberMap{},
         mutex: Mutex = Mutex{},
     };
-
-    const Self = @This();
 
     pub fn init(allocator: Allocator) !Self {
         var instance = Self{ .allocator = Allocator };
@@ -230,3 +233,27 @@ pub const App = struct {
     }
 };
 
+pub fn start() !void {
+    var server_arena = ArenaAllocator.init(std.heap.page_allocator);
+    defer server_arena.deinit();
+    
+    var app = try App.init(&server_arena);
+    defer app.deinit();
+    
+    var server = try httpz.Server(*App).init(server_arena.allocator(), .{
+        .port = conf.port,
+        .request = .{
+            .max_form_count = 20,
+        }
+    }, &app);
+    defer server.deinit();
+    defer server.stop();
+
+    var router = try server.router(.{});
+    for (routes.map.get.keys(), routes.map.get.values()) |path, action|
+        router.get(path, action, .{});
+    for (routes.map.post.keys(), routes.map.post.values()) |path, action|
+        router.post(path, action, .{});
+    
+    try server.listen();
+}

@@ -3,6 +3,7 @@ const uuid = @import("uuid");
 const httpz = @import("httpz");
 const mus = @import("mustache");
 const ws = httpz.websocket;
+const json = std.json;
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -11,10 +12,16 @@ const Uuid = uuid.Uuid;
 
 const server = @import("server.zig");
 const games = @import("games/games.zig");
+const comm = @import("command.zig");
+const builtin = @import("builtin.zig");
 
 const App = server.App;
 const Member = server.Member;
 const Room = server.Room;
+const Command = comm.Command;
+const CommandMap = comm.CommandMap;
+const Event = games.Event;
+const EventMap = games.EventMap;
 const Game = games.Game;
 const Player = games.Player;
 const GameTag = games.Tag;
@@ -86,8 +93,30 @@ pub const Client = struct {
         try self.pull();
         defer self.push(); 
 
-        const cmd = try self.room.game.cmd.parseCommand(arena.allocator(), data, self);
-        try self.room.game.cmd.exec(arena.allocator(), cmd);       
+        const Parsed = struct {
+            cmd: ?[]const u8 = null,
+            event: ?[]const u8 = null,
+        };
+
+        const parsed = try json.parseFromSlice(Parsed, arena.allocator(), data, .{
+            .ignore_unknown_fields = true,
+        });
+        
+        if (parsed.value.cmd) |name| {
+            const cmd = builtin.commands.get(name) orelse return comm.CommandError.UnknownCommand;
+            try cmd.exec(arena.allocator(), self);
+        }
+
+        if (parsed.value.event) |trigger| {
+            const event: Event = if (self.room.attached.game) |game| {
+                game.events.get(trigger) orelse return games.GameError.UnknownEvent;
+            } else return ServerError.NoAttachedGame;
+            try event.exec(arena.allocator(), .{
+                .client = try ClientSource.init(self),
+                .room = try RoomSource.init(arena.allocator(), &self.room.attached.game),
+                .msg = data,
+            });
+        }
     }
     
     pub fn close(self: *Self) void {

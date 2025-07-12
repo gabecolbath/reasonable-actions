@@ -1,5 +1,5 @@
 const std = @import("std");
-const games = @import("../games.zig");
+const games = @import("games.zig");
 const server = @import("../../server.zig");
 const categories = @import("categories.zig");
 const command = @import("../../command.zig");
@@ -8,9 +8,7 @@ const mustache = @import("mustache");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Client = server.Client;
-const Command = command.Command;
-const CommandMap = command.CommandMap;
-const CommandHandler = command.Handler;
+const Event = games.Event;
 const Game = games.Game;
 const Player = games.Player;
 const Room = server.Room;
@@ -141,24 +139,6 @@ const Renderers = struct {
         return Game.Render{};
     }
 };
-
-pub const Commanads = struct {
-    pub var map = CommandMap.initComptime(.{
-        .{ "start", start },
-        .{ "update", update },
-    });
-
-    fn update(allocator: Allocator, cmd: Command) !void {
-        _ = allocator;
-        _ = cmd;
-    }
-
-    fn start(_: Allocator, cmd: Command) !void {
-        const source_game = try cmd.source.game();
-        try source_game.start(cmd.source);
-    }
-};
-
 
 pub const init_scene = Game.Scene{
     .sequence = 0,

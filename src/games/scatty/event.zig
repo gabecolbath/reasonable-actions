@@ -2,18 +2,17 @@ const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 
-
 const scatty = @import("scatty.zig");
 const games = @import("../games.zig");
 const cli = @import("../../client.zig");
+
 
 const Event = games.Event;
 const EventMap = games.EventMap;
 const ClientSource = cli.ClientSource;
 const RoomSource = cli.RoomSource;
 
-
-var map = EventMap.initComptime(.{
+pub var events = EventMap.initComptime(.{
     .{ "AnswersSubmitted", OnAnswersSubmitted },
 });
 

@@ -12,7 +12,7 @@ const StaticStringMap = std.StaticStringMap;
 const Uuid = uuid.Uuid;
 
 
-const server = @import("../server2.zig");
+const server = @import("../server.zig");
 const cli = @import("../client.zig");
 const conf = @import("../config.zig");
 const games = struct {
@@ -66,9 +66,9 @@ pub const Player = struct {
 pub const Game = struct {
     tag: Tag,
     room: *Room,
-    event: Event.Parser,
     loop: Loop,
     control: Controller,
+    events: EventMap,
     state: *anyopaque,
     opts: *anyopaque,
 
@@ -79,7 +79,7 @@ pub const Game = struct {
     pub const Setup = struct {
         opts: Options,
         state: State,
-        events: Event.Handler,
+        events: EventMap,
     };
 
     pub const Controller = struct {
@@ -191,7 +191,7 @@ pub const Game = struct {
             .room = room,
             .loop = loop,
             .control = controllers,
-            .event = setup.events,
+            .events = setup.events,
             .opts = setup.opts,
             .state = setup.state,
         };
@@ -274,7 +274,7 @@ pub const Event = struct {
         assert(@typeInfo(Ptr).pointer.size == .one);
         assert(@typeInfo(@typeInfo(Ptr).pointer.child) == .@"struct");
 
-        const gen = struct {
+        const impl = struct {
             fn exec(ptr: *anyopaque, allocator: Allocator, trigger: Trigger) !void {
                 const self: Ptr = @ptrCast(@alignCast(ptr));
                 try self.exec(allocator, trigger);
@@ -284,7 +284,7 @@ pub const Event = struct {
         return Self{
             .ptr = event,
             .v_table = .{
-                .exec = gen.exec,
+                .exec = impl.exec,
             },
         };
     }

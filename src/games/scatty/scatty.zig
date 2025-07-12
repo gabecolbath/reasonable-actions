@@ -14,6 +14,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 
 const Event = games.Event;
+const EventMap = games.EventMap;
 const GameInterface = games.Game;
 const Sources = games.RoomSource;
 const Controller = GameInterface.Controller;

@@ -4,7 +4,7 @@ const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 
 const core = @import("../core/core.zig");
-const Space = core.space.Space;
+const Scope = core.scope.Scope;
 
 
 const entities = @import("../entities/entities.zig");
@@ -12,12 +12,12 @@ const Player = entities.player.Player;
 
 
 pub const Game = struct {
-    space: Space,
+    scope: Scope,
     players: Player.ArrayMap,
 
     const Self = @This();
-    pub const Identifier = Space.Identifier;
-    pub const Map = AutoHashMapUnmanaged(Identifier, Self);
+    pub const Identifier = Scope.Identifier;
+    pub const Map = AutoHashMapUnmanaged(Identifier, Game);
 
     pub fn kickPlayer(self: *Self, uuid: Player.Identifier) void {
         const player = self.players.get(uuid) orelse return;

@@ -18,8 +18,8 @@ pub const Player = struct {
 
     const Self = @This();
     pub const Identifier = Agent.Identifier;
-    pub const Map = AutoHashMapUnmanaged(Identifier, Self);
-    pub const ArrayMap = AutoArrayHashMapUnmanaged(Identifier, Self); 
+    pub const Map = AutoHashMapUnmanaged(Identifier, Player);
+    pub const ArrayMap = AutoArrayHashMapUnmanaged(Identifier, Player); 
 
     pub fn kick(self: *Self) void {
         self.agent.client.conn.close(.{}) catch return; 

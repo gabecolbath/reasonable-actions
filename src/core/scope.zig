@@ -5,7 +5,7 @@ const utils = @import("../utils/utils.zig");
 const Uuid = utils.uuid.Uuid;
 
 
-pub const Space = struct {
+pub const Scope = struct {
     uuid: Identifier,
 
     const Self = @This();

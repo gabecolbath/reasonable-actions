@@ -1,10 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const AutoHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
+const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 
 
 const core = @import("../core/core.zig");
-const Space = core.space.Space;
+const Scope = core.scope.Scope;
 
 
 const entities = @import("entities.zig");
@@ -13,12 +13,12 @@ const Member = entities.member.Member;
 
 pub const Room = struct {
     allocator: Allocator,
-    space: Space,
+    scope: Scope,
     members: Member.ArrayMap,
 
     const Self = @This();
-    pub const Identifier = Space.Identifier;
-    pub const Map = AutoHashMapUnmanaged(Identifier, Self);
+    pub const Identifier = Scope.Identifier;
+    pub const Map = AutoHashMapUnmanaged(Identifier, Room);
 
     pub fn kickMember(self: *Self, uuid: Member.Identifier) void {
         const member = self.members.get(uuid) orelse return;

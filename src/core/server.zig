@@ -11,6 +11,13 @@ const Room = entities.room.Room;
 const Member = entities.member.Member;
 
 
+pub const ServerError = error {
+    RoomNotFound,
+    MemberNotFound,
+    NoSyncedPlayer,
+};
+
+
 pub const Server = struct { 
     app: *App, 
     rooms: Room.Map, 

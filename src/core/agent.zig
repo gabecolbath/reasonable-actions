@@ -5,8 +5,8 @@ const utils = @import("../utils/utils.zig");
 const Uuid = utils.uuid.Uuid;
 
 
-const network = @import("../network/network.zig");
-const Connection = network.websocket.Connection;
+const core = @import("core.zig");
+const Client = core.client.Client;
 
 
 const application = @import("../application.zig");
@@ -14,9 +14,9 @@ const App = application.App;
 
 
 pub const Agent = struct {
+    client: *Client,
     uuid: Identifier,
     name: []const u8,
-    conn: *Connection,
 
     const Self = @This();
     pub const Identifier = Uuid;

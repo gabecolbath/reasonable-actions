@@ -10,6 +10,13 @@ const Game = entities.game.Game;
 const Player = entities.player.Player;
 
 
+pub const EngineError = error {
+    GameNotFound,
+    PlayerNotFound,
+    NoSyncedMember, 
+};
+
+
 pub const Engine = struct {
     app: *App,
     games: Game.Map,

@@ -4,6 +4,12 @@ const std = @import("std");
 const core = @import("core.zig");
 const Agent = core.agent.Agent;
 const Space = core.space.Space;
+const ServerError = core.server.ServerError;
+const EngineError = core.engine.EngineError;
+
+
+const network = @import("../network/network.zig");
+const Connection = network.httpz.websocket.Conn;
 
 
 const application = @import("../application.zig");
@@ -17,8 +23,9 @@ const Game = entities.game.Game;
 const Player = entities.player.Player;
 
 
-const Client = struct {
+pub const Client = struct {
     app: *App,
+    conn: *Connection,
     agent: Agent,
     space: Space,
     assets: Assets,
@@ -26,16 +33,25 @@ const Client = struct {
     const Self = @This();
 
     const Assets = struct {
-        room: Room,
-        member: Member,
-        game: Game,
-        player: Player,
+        server: Server,
+        engine: Engine,
+
+        const Server = struct {
+            room: Room, 
+            member: *Member,
+        };
+        
+        const Engine = struct {
+            game: Game, 
+            player: *Player,
+        };
     };
 
     pub fn pull(self: *Self) !void {
-        const room = self.app.server.rooms.get(self.space.uuid);
-        const game = self.app.engine.games.get(self.space.uuid);
 
-        // TODO
+    }
+
+    pub fn push(self: *Self) !void {
+
     }
 };

@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 
 
 const core = @import("../core/core.zig");
@@ -19,5 +19,9 @@ pub const Player = struct {
     const Self = @This();
     pub const Identifier = Agent.Identifier;
     pub const Map = AutoHashMapUnmanaged(Identifier, Self);
-    pub const List = ArrayListUnmanaged(Self);
+    pub const ArrayMap = AutoArrayHashMapUnmanaged(Identifier, Self); 
+
+    pub fn kick(self: *Self) void {
+        self.agent.client.conn.close(.{}) catch return; 
+    }
 };

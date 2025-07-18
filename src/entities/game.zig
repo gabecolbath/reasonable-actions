@@ -13,9 +13,20 @@ const Player = entities.player.Player;
 
 pub const Game = struct {
     space: Space,
-    players: Player.List,
+    players: Player.ArrayMap,
 
     const Self = @This();
     pub const Identifier = Space.Identifier;
     pub const Map = AutoHashMapUnmanaged(Identifier, Self);
+
+    pub fn kickPlayer(self: *Self, uuid: Player.Identifier) void {
+        const player = self.players.get(uuid) orelse return;
+        player.kick();
+    }
+
+    pub fn kickAll(self: *Self) void {
+        for (self.players.items) |player| {
+            player.kick(); 
+        }
+    }
 };

@@ -21,6 +21,13 @@ pub const Player = struct {
     pub const Map = AutoHashMapUnmanaged(Identifier, Player);
     pub const ArrayMap = AutoArrayHashMapUnmanaged(Identifier, Player); 
 
+    pub fn init(game: *Game, agent: Agent) Self {
+        return Self{
+            .agent = agent,
+            .game = game,
+        };
+    }
+
     pub fn kick(self: *Self) void {
         self.agent.client.conn.close(.{}) catch return; 
     }

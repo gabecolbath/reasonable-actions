@@ -22,6 +22,13 @@ pub const Member = struct {
     pub const Map = AutoHashMapUnmanaged(Identifier, Member);
     pub const ArrayMap = AutoArrayHashMapUnmanaged(Identifier, Member);
 
+    pub fn init(room: *Room, agent: Agent) Self {
+        return Self{
+            .agent = agent,
+            .room = room,
+        };
+    }
+
     pub fn kick(self: *Self) void {
         self.agent.client.conn.close(.{}) catch return;
     }

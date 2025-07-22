@@ -1,4 +1,10 @@
 const std = @import("std");
+const ArrayListUnamanged = std.ArrayListUnmanaged;
+
+
+const application = @import("../application.zig");
+const App = application.App;
+const AppError = application.AppError;
 
 
 const core = @import("core.zig");
@@ -10,10 +16,6 @@ const EngineError = core.engine.EngineError;
 
 const network = @import("../network/network.zig");
 const Connection = network.httpz.websocket.Conn;
-
-
-const application = @import("../application.zig");
-const App = application.App;
 
 
 const entities = @import("../entities/entities.zig");
@@ -31,43 +33,47 @@ pub const Client = struct {
     assets: Assets,
 
     const Self = @This();
+    pub const List = ArrayListUnamanged(*Client);
 
     const Assets = struct {
         room: Room,
         game: Game,
     };
 
-    pub fn synced(self: *Self) bool {
-        if (self.assets.room.scope != self.assets.game.scope) return false;
-        
-        for (self.assets.room.members.values()) |member| {
-            if (!self.assets.game.players.contains(member.agent.uuid)) return false;
-        }
-        for (self.assets.game.players.values()) |player| {
-            if (!self.assets.room.members.contains(player.agent.uuid)) return false;
-        }
-    }
-
     pub fn pull(self: *Self) !void {
         var room = self.app.server.rooms.get(self.scope.uuid) orelse return ServerError.RoomNotFound;
-        var game = self.app.engine.games.get(self.scope.uuid) orelse return ServerError.MemberNotFound; 
-
+        var game = self.app.engine.games.get(self.scope.uuid) orelse return EngineError.GameNotFound;
+        const clients_in_scope = self.scope.clients.items;
+        
         room.members.clearRetainingCapacity();
         game.players.clearRetainingCapacity();
 
-        for (room.members.values()) |member| {
-            const member_data = self.app.server.members.get(member.agent.uuid) orelse continue;
-            const player_data = self.app.engine.players.get(member.agent.uuid) orelse continue;
-            room.members.putAssumeCapacity(member.agent.uuid, member_data);
-            game.players.putAssumeCapacity(member.agent.uuid, player_data);
+        for (clients_in_scope) |client| {
+            const member = self.app.server.members.get(client.agent.uuid) orelse continue;
+            const player = self.app.engine.players.get(client.agent.uuid) orelse continue;
+            
+            room.members.putAssumeCapacity(member.agent.uuid, member); 
+            game.players.putAssumeCapacity(player.agent.uuid, player);
         }
 
-        self.assets = Assets{
-            .room = room,
-            .game = game,
-        };
+        self.assets.room = room;
+        self.assets.game = game;
     }
 
     pub fn push(self: *Self) !void {
+        var room = self.assets.room;
+        var game = self.assets.game;
+        const clients_in_scope = self.scope.clients.items;
+
+        for (clients_in_scope) |client| {
+            const member = room.members.get(client.agent.uuid) orelse continue;
+            const player = game.players.get(client.agent.uuid) orelse continue;
+            
+            self.app.server.members.putAssumeCapacity(member.agent.uuid, member);
+            self.app.engine.players.putAssumeCapacity(player.agent.uuid, player);
+        }
+
+        self.app.server.rooms.putAssumeCapacity(room.scope.uuid, room);
+        self.app.engine.games.putAssumeCapacity(game.scope.uuid, game);
     }
 };

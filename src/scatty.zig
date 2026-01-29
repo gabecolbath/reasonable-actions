@@ -15,7 +15,7 @@ pub const Vote = bool;
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const List = std.ArrayListUnmanaged;
+const List = std.ArrayList;
 const Map = std.AutoArrayHashMapUnmanaged;
 
 pub const GameError = error {
@@ -119,7 +119,13 @@ pub const Game = struct {
         repeat_categories: bool = true,
         scoring_method: ScoringMethod = .fair_majority,
 
-        const ScoringMethod = enum { fair_majority, punish_majority, fair_weighed, punish_weighed };
+        const ScoringMethod = enum {
+            fair_majority,
+            punish_majority,
+            fair_weighed,
+            punish_weighed,
+            by_count,
+        };
     };
 
     pub const Round = struct {
@@ -147,13 +153,13 @@ pub const Game = struct {
             var answers = List(Map(u8, Answer)){};
             var scores = Map(u8, i16){};
             var results = Map(u8, Map(u8, Vote)){};
-            var balances = Map(u8, i16){};
+            var counts = Map(u8, Voting.Counts){};
 
             try categories.ensureTotalCapacity(arena.allocator(), game.opts.num_categories);
             try answers.ensureTotalCapacity(arena.allocator(), game.opts.num_categories);
             try scores.ensureTotalCapacity(arena.allocator(), game.table.size());
             try results.ensureTotalCapacity(arena.allocator(), game.table.size());
-            try balances.ensureTotalCapacity(arena.allocator(), game.table.size());
+            try counts.ensureTotalCapacity(arena.allocator(), game.table.size());
 
             random.shuffle(Category, game.available_categories.items);
             categories.appendSliceAssumeCapacity(game.available_categories.items[0..game.opts.num_categories]);
@@ -170,7 +176,7 @@ pub const Game = struct {
                 try vote_map.ensureTotalCapacity(arena.allocator(), game.table.size());
                 results.putAssumeCapacity(player.id, vote_map);
                 scores.putAssumeCapacity(player.id, 0);
-                balances.putAssumeCapacity(player.id, 0);
+                counts.putAssumeCapacity(player.id, .{});
             }
 
             return Round{
@@ -180,50 +186,54 @@ pub const Game = struct {
                 .letter = letter,
                 .scores = scores,
                 .answering = Answering{ .answers = answers },
-                .voting = Voting{ .results = results, .balances = balances },
+                .voting = Voting{ .results = results, .counts = counts },
             };
         }
 
-        pub fn score(self: *Round) void {
+        pub fn update_scores(self: *Round) void {
             var table = self.game.table.iterate();
             while (table.next()) |player| {
-                const bal = self.voting.balances.get(player.id) orelse continue;
-                const curr_score = self.scores.getPtr(player.id) orelse continue;
-                var inc: i16 = 0;
+                const counts = self.voting.counts.get(player.id) orelse continue;
+                const score = self.scores.getPtr(player.id) orelse continue;
+                const balance = @as(i16, counts.yes) - @as(i16, counts.no);
 
                 switch (self.game.opts.scoring_method) {
-                    .fair_majority   => inc = if (bal > 0) 1 else 0,
-                    .fair_weighed    => inc = if (bal > 0) bal else 0,
-                    .punish_majority => inc = if (bal > 0) 1 else if (bal < 0) -1 else 0,
-                    .punish_weighed  => inc = bal,
+                    .fair_majority   => score.* += if (balance >= 0) 1 else 0,
+                    .fair_weighed    => score.* += if (balance >= 0) balance else 0,
+                    .punish_majority => score.* += if (balance >= 0) 1 else -1,
+                    .punish_weighed  => score.* += balance,
+                    .by_count        => score.* += counts.yes,
                 }
-
-                curr_score.* += inc;
-                player.score += inc;
             }
         }
 
-        pub fn answer(self: *Round, category: u8, id: u8, recorded: []const u8) void {
-            if (recorded.len < answer_len_limit) {
+        pub fn record_answer(self: *Round, category: u8, id: u8, answer: []const u8) void {
+            if (answer.len < answer_len_limit) {
                 var buf = std.mem.zeroes(Answer);
-                @memcpy(buf[0..recorded.len], recorded[0..]);
+                @memcpy(buf[0..answer.len], answer[0..]);
                 self.answering.answers.items[category].putAssumeCapacity(id, buf);
             } else return;
         }
 
-        pub fn vote(self: *Round, sender: u8, receipient: u8, approved: Vote) void {
+        pub fn cast_vote(self: *Round, sender: u8, receipient: u8, approved: Vote) void {
             var votes = self.voting.results.getPtr(receipient) orelse return;
             votes.putAssumeCapacity(sender, approved);
 
-            const balance = self.voting.balances.get(receipient) orelse return;
+            const counts = self.voting.counts.getPtr(receipient) orelse return;
             if (approved) {
-                self.voting.balances.putAssumeCapacity(receipient, balance + 1);
+                counts.yes += 1;
             } else {
-                self.voting.balances.putAssumeCapacity(receipient, balance - 1);
+                counts.no += 1;
             }
         }
 
         pub fn new(self: *Round) void {
+            var scorers = self.game.table.iterate();
+            while (scorers.next()) |player| {
+                const round_score = self.scores.get(player.id) orelse continue;
+                player.score += round_score;
+            }
+
             self.reset_categories();
             self.reset_letter();
             self.reset_scores();
@@ -256,7 +266,7 @@ pub const Game = struct {
         }
 
         fn reset_scores(self: *Round) void {
-            self.score();
+            self.update_scores();
             self.scores.clearRetainingCapacity();
             var table = self.game.table.iterate();
             while (table.next()) |player| {
@@ -273,14 +283,14 @@ pub const Game = struct {
                 }
             }
 
-            pub fn get(self: *Answering, category: u8, id: u8) ?Answer {
+            pub fn read_answer(self: *Answering, category: u8, id: u8) ?Answer {
                 return self.answers.items[category].get(id);
             }
         };
 
         pub const Voting = struct {
             results: Map(u8, Map(u8, Vote)),
-            balances: Map(u8, i16),
+            counts: Map(u8, Counts),
             category: u8 = 0,
 
             pub fn new(self: *Voting) void {
@@ -289,11 +299,32 @@ pub const Game = struct {
                     votes.clearRetainingCapacity();
                 }
 
-                for (self.balances.keys()) |id| {
-                    const balance = self.balances.getPtr(id) orelse continue;
-                    balance.* = 0;
+                for (self.counts.keys()) |id| {
+                    const count = self.counts.getPtr(id) orelse continue;
+                    count.* = .{};
                 }
+
+                self.category += 1;
             }
+
+            pub fn balance(self: *Voting, id: u8) ?i16 {
+                const counts = self.counts.get(id) orelse return null;
+                return @as(i16, counts.yes) - @as(i16, counts.no);
+            }
+
+            pub fn read_vote(self: *Voting, receipient: u8, sender: u8) ?Vote {
+                const results = self.results.get(receipient) orelse return null;
+                return results.get(sender);
+            }
+
+            pub fn read_counts(self: *Voting, id: u8) ?Counts {
+                return self.counts.get(id);
+            }
+
+            pub const Counts = struct {
+                yes: u8 = 0,
+                no: u8 = 0,
+            };
         };
     };
 };
@@ -353,6 +384,19 @@ pub const Table = struct {
         return Iterator.init(self);
     }
 
+    pub fn players(self: *Table, allocator: Allocator) ![]*Player {
+        var list = List(*Player){};
+        try list.ensureTotalCapacity(allocator, self.seats.len);
+
+        for (0..self.seats.len) |id| {
+            if (self.seats[id]) |active_player| {
+                list.appendAssumeCapacity(active_player);
+            }
+        }
+
+        return list.toOwnedSlice(allocator);
+    }
+
     pub const Iterator = struct {
         seats: [player_limit]?*Player,
         player: ?*Player = null,
@@ -393,6 +437,19 @@ pub const Table = struct {
             defer self.player = null;
             defer self.seat = self.seats.len;
             return self.player;
+        }
+
+        pub fn reset(self: *Iterator) void {
+            for (0..self.seats.len) |seat| {
+                if (self.seats[self.seat]) |first_player| {
+                    self.player = first_player;
+                    self.seat = seat;
+                    return;
+                }
+            }
+
+            self.player = null;
+            self.seat = self.seats.len;
         }
     };
 };

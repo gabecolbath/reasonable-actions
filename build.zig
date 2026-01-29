@@ -41,6 +41,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const httpz_dep = b.dependency("httpz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const uuid_dep = b.dependency("uuid", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
     // to the module defined above, it's sometimes preferable to split business
@@ -79,9 +89,12 @@ pub fn build(b: *std.Build) void {
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
                 .{ .name = "reasonable_actions", .module = mod },
+                .{ .name = "httpz", .module = httpz_dep.module("httpz") },
+                .{ .name = "uuid", .module = uuid_dep.module("uuid") },
             },
         }),
     });
+
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default

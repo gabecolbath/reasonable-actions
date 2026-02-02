@@ -349,17 +349,18 @@ pub const Table = struct {
         self.arena.deinit();
     }
 
-    pub fn join(self: *Table, joining: Player) !void {
+    pub fn join(self: *Table, joining: Player) !u8 {
         for (0..self.seats.len) |id| {
             if (self.seats[id] == null) {
                 defer self.count += 1;
 
                 const new_player = try self.arena.allocator().create(Player);
+                errdefer self.arena.allocator().destroy(new_player);
                 new_player.* = joining;
                 new_player.id = @intCast(id);
 
                 self.seats[id] = new_player;
-                return;
+                return @intCast(id);
             } else continue;
         } else return GameError.AtPlayerLimit;
     }

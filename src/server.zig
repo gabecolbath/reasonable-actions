@@ -1,27 +1,41 @@
 const std = @import("std");
-const reasonable_actions = @import("reasonable_actions");
+const mod = @import("reasonable_actions");
 const httpz = @import("httpz");
-const websocket = httpz.websocket;
 const uuid = @import("uuid");
-const scatty = @import("scatty.zig");
-const rendering = @import("rendering.zig");
+const websocket = httpz.websocket;
+const rendering = mod.rendering;
+
+const assert = std.debug.assert;
 
 pub const server_port = 8802;
 pub const server_room_limit = 32;
-pub const server_member_limit = server_room_limit * 8;
+pub const server_members_per_room_limit = 8;
+pub const server_member_limit = server_room_limit * server_members_per_room_limit;
 
-const index_template = @embedFile("html/index.html");
-
+// std =========================================================================
 const Allocator = std.mem.Allocator;
 const Uuid = uuid.Uuid;
 const Map = std.AutoArrayHashMapUnmanaged;
 const List = std.ArrayList;
+
+// httpz =======================================================================
+const Request = httpz.Request;
+const Response = httpz.Response;
+
+// websocket ===================================================================
+const Conn = websocket.Conn;
+
+// scatty ======================================================================
+const Game = mod.games.scatty.Game;
+const Player = mod.games.scatty.Player;
+
 
 pub const ServerError = error {
     RoomNotFound,
     MemberNotFound,
     ReachedServerMemberLimit,
     ReachedServerRoomLimit,
+    ReachedServerMembersPerRoomLimit,
     InvalidUsername,
     MissingQuery,
 };
@@ -30,146 +44,184 @@ pub const GameTag = enum {
     scatty,
 };
 
-pub const GameIdentifier = union(GameTag) {
-    scatty: *scatty.Game,
-};
-
 pub const Room = struct {
+    app: *App,
     id: Uuid,
-    clients: List(Uuid),
-    game: scatty.Game,
-};
-
-pub const App = struct {
-    allocator: Allocator,
     members: Map(Uuid, *Member),
-    rooms: Map(Uuid, *Room),
-    members: Map(Uuid, *Member),
+    game: Game,
+    name: []const u8,
 
-    pub const WebsocketHandler = Client;
+    pub const Context = struct {
+        app: *App,
+        name: []const u8,
+        game: Game,
+    };
 
-    pub fn init(allocator: Allocator) !App {
-        var clients = Map(Uuid, Client){};
-        try clients.ensureTotalCapacity(allocator, server_member_limit);
-        errdefer clients.deinit(allocator);
+    pub fn new(ctx: *const Context) !*Room {
+        const new_room = try ctx.app.allocator.create(Room);
+        errdefer ctx.app.allocator.destroy(Room);
+        new_room.* = try Room.init(ctx);
+        errdefer new_room.deinit();
+        try new_room.afterInit();
+    }
 
-        var rooms = Map(Uuid, Room){};
-        try rooms.ensureTotalCapacity(allocator, server_room_limit);
-        errdefer rooms.deinit(allocator);
+    pub fn init(ctx: *const Context) !Room {
+        const members = Map(Uuid, *Member){};
+        try members.ensureTotalCapacity(ctx.app.allocator, server_members_per_room_limit);
+        errdefer members.deinit(ctx.app.allocator);
 
-        var members = Map(Uuid, Member){};
-        try members.ensureTotalCapacity(allocator, server_member_limit);
-        errdefer members.deinit();
+        const name = try ctx.app.allocator.dupe(u8, ctx.name);
+        errdefer ctx.app.allocator.free(name);
 
-        return App{
-            .allocator = allocator,
-            .rooms = rooms,
+        return Room {
+            .app = ctx.app,
+            .id = uuid.v7.new(),
             .members = members,
+            .game = ctx.game,
+            .name = name,
         };
     }
 
-    pub fn deinit(_: *App) void {
-        // TODO
+    pub fn deinit(self: *Room) void {
+        self.members.deinit(self.app.allocator);
+        // self.game.deinit(); TODO
+        self.app.allocator.free(self.name);
     }
 
-    pub fn printRooms(self: *App) void {
-        std.debug.print("\n", .{});
-        std.debug.print("\t------------------------------------------------------\n", .{});
-        std.debug.print("\tRooms:\n", .{});
-        std.debug.print("\t------------------------------------------------------\n", .{});
-
-        var iter = self.rooms.iterator();
-        while (iter.next()) |entry| {
-            const room = entry.value_ptr;
-            std.debug.print("\t{s}\n", .{ uuid.urn.serialize(room.id) });
-        } else std.debug.print("\n", .{});
+    pub fn afterInit(self: *Room) !void {
+        errdefer _ = self.app.unregisterRoom(self);
+        self.app.registerRoom(self);
     }
 
-    pub fn printMembers(self: *App) void {
-        std.debug.print("\n", .{});
-        std.debug.print("\t------------------------------------------------------\n", .{});
-        std.debug.print("\tMembers:\n", .{});
-        std.debug.print("\t------------------------------------------------------\n", .{});
+    pub fn close(self: *Room) !void {
+        while (self.members.count() > 0) self.members.values()[0].close("Room Closed");
+        self.deinit();
+        self.app.allocator.destroy(self);
+    }
 
-        var iter = self.members.iterator();
-        while (iter.next()) |entry| {
-            const room = entry.value_ptr;
-            std.debug.print("\t{s}\n", .{ uuid.urn.serialize(room.id) });
-        } else std.debug.print("\n", .{});
+    pub fn changeName(self: *Room, new_name: []const u8) !void {
+        const old_name = self.name;
+        self.name = self.app.allocator.dupe(u8, new_name);
+        self.app.allocator.free(old_name);
+    }
+
+    pub fn host(self: *Room) ?*Member {
+        var members_iter = self.members.iterator();
+        while (members_iter.next()) |entry| {
+            const member = entry.value_ptr.*;
+            if (member.is_host) return member;
+        } else return null;
+    }
+
+    pub fn assignHostTo(self: *Room, assignment: union(enum) { first_available, choose: Uuid }) ?*Member {
+        if (self.members.count() == 0) return null;
+
+        var members_iter = self.members.iterator();
+        while (members_iter.next()) |entry| {
+            const member = entry.value_ptr.*;
+            member.is_host = false;
+        }
+
+        switch (assignment) {
+            .first => {
+                const new_host = self.members.values()[0];
+                new_host.is_host = true;
+                return new_host;
+            },
+            .choose => |chosen| {
+                const new_host = self.members.get(chosen) orelse return null;
+                new_host.is_host = true;
+                return new_host;
+            }
+        }
     }
 };
 
 pub const Member = struct {
-    conn: *websocket.Conn,
+    conn: *Conn,
     app: *App,
     id: Uuid,
-    member_id: Uuid,
-    room_id: Uuid,
-    username: []const u8,
+    room: *Room,
+    player: Player,
+    name: []const u8,
+    is_host: bool,
 
     pub const Context = struct {
         app: *App,
         room: Uuid,
-        username: []const u8,
+        player: Player,
+        name: []const u8,
     };
 
-    pub fn init(conn: *websocket.Conn, ctx: *const Context) !Client {
-        return Client{
+    pub fn init(conn: *Conn, ctx: *const Context) !Member {
+        return Member{
             .conn = conn,
             .app = ctx.app,
             .id = uuid.v7.new(),
-            .member_id = uuid.v7.new(),
-            .room_id = ctx.room,
-            .username = try ctx.app.allocator.dupe(u8, ctx.username),
         };
     }
 
-    pub fn afterInit(self: *Client) !void {
-        var arena = std.heap.ArenaAllocator.init(self.app.allocator);
-        defer arena.deinit();
-        try rendering.msgGame(self, arena.allocator());
+    pub fn deinit(self: *Member) void {
+        // self.player.deinit(); TODO
+        self.app.allocator.free(self.name);
     }
 
-    pub fn clientMessage(_: *Client, _: []const u8) !void {
+    pub fn afterInit(self: *Member) !void {
+        errdefer self.close();
+        try self.app.registerMember(self);
+    }
+
+    pub fn clientMessage(_: *Member, _: []const u8) !void {
         // TODO
     }
 
-    pub fn clientClose(self: *Client, _: []const u8) !void {
-        std.debug.print("[member : {s} :: player : {s}] left [room : {s}]\n", .{
-            uuid.urn.serialize(self.member),
-            self.fetchPlayer().?.username,
-            uuid.urn.serialize(self.room)
-        });
-
-        defer {
-            _ = self.app.members.swapRemove(self.member);
-            self.app.printRooms();
-            self.app.printMembers();
-        }
-
-        const player = self.fetchPlayer() orelse return;
-        const game = self.fetchGame() orelse return;
-        game.table.kick(player.id);
-
+    pub fn clientClose(self: *Member, _: []const u8) !void {
+        _ = self.app.unregisterMember(self);
+        self.deinit();
     }
 
-    pub fn room(self: *Client) *Room {
-        return self.app.rooms.get(self.room_id);
+    pub fn close(self: *Member, reason: []const u8) void {
+        _ = self.app.unregisterMember(self);
+        self.deinit();
+        self.conn.close(.{ .reason = reason });
     }
 
-    pub fn member(self: *Client) *Member {
-        return self.app.members.get(self.member_id);
+    pub fn changeName(self: *Member, new_name: []const u8) !void {
+        const old_name = self.name;
+        self.name = try self.app.allocator.dupe(u8, new_name);
+        self.app.allocator.free(old_name);
+    }
+};
+
+pub const App = struct {
+    allocator: Allocator,
+    rooms: Map(Uuid, *Room),
+    members: Map(Uuid, *Member),
+
+    pub fn registerRoom(self: *App, room: *Room) !void {
+        errdefer self.unregisterRoom(room);
+        if (self.rooms.count() < server_room_limit) {
+            self.rooms.putAssumeCapacity(room.id, room);
+        } else return ServerError.ReachedServerRoomLimit;
     }
 
-    pub fn fetchGame(self: *Client) ?*scatty.Game {
-        const room = self.app.rooms.get(self.room) orelse return null;
-        return room.game;
+    pub fn unregisterRoom(self: *App, room: *Room) void {
+        _ = self.rooms.swapRemove(room.id);
     }
 
-    pub fn fetchPlayer(self: *Client) ?*scatty.Player {
-        const game = self.fetchGame() orelse return null;
-        const member = self.app.members.get(self.member) orelse return null;
-        return game.table.player(member.seat);
+    pub fn registerMember(self: *App, member: *Member) !void {
+        errdefer self.unregisterMember(member);
+        if (self.members.count() < server_member_limit) {
+            self.members.putAssumeCapacity(member.id, member);
+        } else return ServerError.ReachedServerMemberLimit;
+        if (member.room.count() < server_members_per_room_limit) {
+            member.room.members.putAssumeCapacity(member.id, member);
+        } else return ServerError.ReachedServerMembersPerRoomLimit;
+    }
+
+    pub fn unregisterMember(self: *App, member: *Member) void {
+        _ = self.members.swapRemove(member.id);
+        _ = member.room.members.swapRemove(member.id);
     }
 };
 

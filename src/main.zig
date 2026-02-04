@@ -2,6 +2,7 @@ const std = @import("std");
 const reasonable_actions = @import("reasonable_actions");
 const scatty = @import("scatty.zig");
 const server = @import("server.zig");
+const uuid = @import("uuid");
 const print = std.debug.print;
 
 pub fn main() !void {
@@ -10,6 +11,18 @@ pub fn main() !void {
 
     var app = try server.App.init(dba.allocator());
     defer app.deinit();
+
+    var game_ptr_arena = std.heap.ArenaAllocator.init(dba.allocator());
+    var game_arena = std.heap.ArenaAllocator.init(dba.allocator());
+
+    for (0..10) |_| {
+        const test_game = try game_ptr_arena.allocator().create(scatty.Game);
+        test_game.* = try scatty.Game.init(game_arena.allocator(), .{});
+        _ = try app.registerRoom(test_game);
+    }
+
+    defer game_arena.deinit();
+    defer game_ptr_arena.deinit();
 
     var host = try server.start(dba.allocator(), &app);
     defer host.deinit();

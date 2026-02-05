@@ -21,6 +21,16 @@ pub fn build(b: *std.Build) void {
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
 
+    const httpz_dep = b.dependency("httpz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const uuid_dep = b.dependency("uuid", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -39,16 +49,10 @@ pub fn build(b: *std.Build) void {
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
-    });
-
-    const httpz_dep = b.dependency("httpz", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const uuid_dep = b.dependency("uuid", .{
-        .target = target,
-        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "httpz", .module = httpz_dep.module("httpz") },
+            .{ .name = "uuid", .module = uuid_dep.module("uuid") },
+        },
     });
 
     // Here we define an executable. An executable needs to have a root module
@@ -88,7 +92,6 @@ pub fn build(b: *std.Build) void {
                 // repeated because you are allowed to rename your imports, which
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
-                .{ .name = "reasonable_actions", .module = mod },
                 .{ .name = "httpz", .module = httpz_dep.module("httpz") },
                 .{ .name = "uuid", .module = uuid_dep.module("uuid") },
             },

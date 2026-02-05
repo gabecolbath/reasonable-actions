@@ -1,5 +1,6 @@
 const std = @import("std");
-const reasonable_actions = @import("reasonable_actions");
+const server = @import("server.zig");
+
 const random = std.crypto.random;
 
 pub const player_limit = 8;
@@ -17,6 +18,11 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const List = std.ArrayList;
 const Map = std.AutoArrayHashMapUnmanaged;
+
+const EventHandler = server.EventHandler;
+const Room = server.Room;
+const Member = server.Member;
+const GameTag = server.GameTag;
 
 pub const GameError = error {
     UsernameTooLong,
@@ -58,6 +64,7 @@ pub const Game = struct {
     table: *Table,
     available_categories: List(Category),
     available_letters: List(u8),
+    tag: GameTag = .scatty,
 
     pub fn init(allocator: Allocator, opts: Options) !Game {
         const table = try allocator.create(Table);
@@ -448,3 +455,44 @@ pub const Table = struct {
         }
     };
 };
+
+pub const events = EventHandler.init(.{
+    .{ "start", &onStart },
+    .{ "player-joined", &onPlayerJoined },
+    .{ "player-left", &onPlayerLeft },
+});
+
+fn onStart(_: Allocator, _: *Room, member: *Member) !void {
+    std.debug.print("Start event was triggered by {s}.\n", .{member.name});
+}
+
+fn onPlayerJoined(arena: Allocator, room: *Room, member: *Member) !void {
+    const member_name_template = @embedFile("html/member-name.html");
+    const member_name_html = try std.fmt.allocPrint(arena, member_name_template, .{
+        member.name,
+    });
+
+    for (room.members.values()) |other_member| {
+        if (other_member != member) {
+            const other_member_name_html = try std.fmt.allocPrint(arena, member_name_template, .{
+                other_member.name,
+            });
+            member.conn.write(other_member_name_html) catch {};
+        }
+
+        other_member.conn.write(member_name_html) catch {};
+    }
+}
+
+fn onPlayerLeft(arena: Allocator, room: *Room, member: *Member) !void {
+    const member_name_template = @embedFile("html/member-name.html");
+
+    for (room.members.values()) |other_member| {
+        if (member != other_member) {
+            const other_member_name_html = try std.fmt.allocPrint(arena, member_name_template, .{
+                other_member.name,
+            });
+
+        }
+    }
+}

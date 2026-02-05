@@ -1,8 +1,8 @@
 const std = @import("std");
-const reasonable_actions = @import("reasonable_actions");
-const scatty = @import("scatty.zig");
-const server = @import("server.zig");
 const uuid = @import("uuid");
+
+const server = @import("server.zig");
+const scatty = @import("scatty.zig");
 const print = std.debug.print;
 
 pub fn main() !void {
@@ -12,17 +12,24 @@ pub fn main() !void {
     var app = try server.App.init(dba.allocator());
     defer app.deinit();
 
-    var game_ptr_arena = std.heap.ArenaAllocator.init(dba.allocator());
     var game_arena = std.heap.ArenaAllocator.init(dba.allocator());
 
-    for (0..10) |_| {
-        const test_game = try game_ptr_arena.allocator().create(scatty.Game);
-        test_game.* = try scatty.Game.init(game_arena.allocator(), .{});
-        _ = try app.registerRoom(test_game);
+    var test_room_name_buf: [32]u8 = undefined;
+    const test_room_name_template = "test_room_{d}";
+
+    for (0..10) |index| {
+        const test_game = try scatty.Game.init(game_arena.allocator(), .{});
+
+        const test_room_ctx = server.Room.Context{
+            .app = &app,
+            .game = test_game,
+            .name = std.fmt.bufPrint(&test_room_name_buf, test_room_name_template, .{index}) catch "test_room_?",
+        };
+
+        _ = server.Room.new(&test_room_ctx) catch continue;
     }
 
     defer game_arena.deinit();
-    defer game_ptr_arena.deinit();
 
     var host = try server.start(dba.allocator(), &app);
     defer host.deinit();

@@ -10,6 +10,7 @@ const games = struct {
 const ServerError = server.ServerError;
 
 const Allocator = std.mem.Allocator;
+const List = std.ArrayList;
 const App = server.App;
 const Member = server.Member;
 const Room = server.Room;
@@ -111,14 +112,51 @@ pub fn msgGame(room: *Room, member: *Member, arena: Allocator) !void {
     const game_html = if (member.is_host) render_for_host: {
         break :render_for_host try std.fmt.allocPrint(arena, game_host_template, .{
             room.name,
+            member.name,
             room.urn(),
         });
     } else render_for_member: {
         break :render_for_member try std.fmt.allocPrint(arena, game_template, .{
             room.name,
+            member.name,
             room.urn(),
         });
     };
 
     try member.conn.write(game_html);
 }
+
+pub fn msgMemberNames(room: *Room, _: *Member, arena: Allocator) !void {
+    const member_name_template = @embedFile("html/member-name.html");
+    var member_name_html_buf: [128]u8 = undefined;
+    var member_name_html_data = List(u8){};
+
+    for (room.members.values()) |m| {
+        m.conn.write("<div id='member-list' hx-swap-oob='outerHTML:#member-list'></div>") catch {};
+
+        const member_name_html = std.fmt.bufPrint(&member_name_html_buf, member_name_template, .{m.name}) catch continue;
+        member_name_html_data.appendSlice(arena, member_name_html) catch continue;
+    }
+
+    for (room.members.values()) |m| {
+        m.conn.write(member_name_html_data.items) catch continue;
+    }
+}
+
+// pub fn msgMemberNamesWithExclusion(room: *Room, member: *Member, arena: Allocator) !void {
+//     const member_name_template = @embedFile("html/member-name.html");
+//     var member_name_html_buf: [128]u8 = undefined;
+//     var member_name_html_data = List(u8){};
+//
+//     for (room.members.values()) |m| {
+//         if (m == member) continue;
+//         m.conn.write("<div id='member-list' hx-swap-oob='outerHTML:#member-list'></div>") catch {};
+//         const member_name_html = std.fmt.bufPrint(&member_name_html_buf, member_name_template, .{m.name}) catch continue;
+//         member_name_html_data.appendSlice(arena, member_name_html) catch continue;
+//     }
+//
+//     for (room.members.values()) |m| {
+//         if (m == member) continue;
+//         m.conn.write(member_name_html_data.items) catch continue;
+//     }
+// }

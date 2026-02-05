@@ -125,9 +125,7 @@ pub const Room = struct {
     }
 
     pub fn host(self: *Room) ?*Member {
-        var members_iter = self.members.iterator();
-        while (members_iter.next()) |entry| {
-            const member = entry.value_ptr.*;
+        for (self.members.values()) |member| {
             if (member.is_host) return member;
         } else return null;
     }
@@ -142,7 +140,7 @@ pub const Room = struct {
         }
 
         switch (assignment) {
-            .first => {
+            .first_available => {
                 const new_host = self.members.values()[0];
                 new_host.is_host = true;
                 return new_host;
@@ -201,9 +199,7 @@ pub const Member = struct {
         errdefer self.close();
         try self.app.registerMember(self);
 
-        var arena = std.heap.ArenaAllocator.init(self.app.allocator);
-        defer arena.deinit();
-        try rendering.msgGame(self.room, self, arena.allocator());
+        try self.onJoinedEvent();
     }
 
     pub fn clientMessage(self: *Member, msg: []const u8) !void {
@@ -234,6 +230,8 @@ pub const Member = struct {
             defer self.closed = true;
             self.app.unregisterMember(self);
             self.deinit();
+
+            try self.onLeftEvent();
         }
     }
 
@@ -243,6 +241,32 @@ pub const Member = struct {
             self.app.unregisterMember(self);
             self.deinit();
             self.conn.close(.{}) catch {};
+
+            self.onLeftEvent() catch {};
+        }
+    }
+
+    pub fn onJoinedEvent(self: *Member) !void {
+        var arena = std.heap.ArenaAllocator.init(self.app.allocator);
+        defer arena.deinit();
+
+        switch (self.room.game.tag) {
+            .scatty => try games.scatty.events.trigger(arena.allocator(), self, "player-joined"),
+        }
+    }
+
+    pub fn onLeftEvent(self: *Member) !void {
+        var arena = std.heap.ArenaAllocator.init(self.app.allocator);
+        defer arena.deinit();
+
+        if (self.is_host) {
+            self.is_host = false;
+            const new_host = self.room.assignHostTo(.first_available);
+            if (new_host) |host| rendering.msgGame(self.room, host, arena.allocator()) catch {};
+        }
+
+        switch (self.room.game.tag) {
+            .scatty => try games.scatty.events.trigger(arena.allocator(), self, "player-left"),
         }
     }
 

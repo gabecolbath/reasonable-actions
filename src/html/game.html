@@ -1,6 +1,6 @@
 <div id="game" hx-swap-oob="innerHTML:#websocket">
-    <h4>{s}</h4>
+    <h4>{s} | {s}</h4>
     <div id="dashboard">Waiting for host to start the game...</div>
-    <div id="member-list" hx-trigger="load once" hx-vals='{{ "event": "game/player-joined" }}' ws-send></div>
+    <div id="member-list"></div>
     <p>{s}</p>
 </div>

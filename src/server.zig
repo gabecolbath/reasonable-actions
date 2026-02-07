@@ -49,10 +49,6 @@ pub const EventError = error {
     UnknownEvent,
 };
 
-pub const GameTag = enum {
-    scatty,
-};
-
 pub const Event = *const fn (arena: Allocator, room: *Room, member: *Member) anyerror!void;
 
 pub const Room = struct {
@@ -218,9 +214,7 @@ pub const Member = struct {
             const level = tok.next() orelse return;
             if (std.mem.eql(u8, level, "game")) {
                 const event = tok.next() orelse return;
-                switch (self.room.game.tag) {
-                    .scatty => try games.scatty.events.trigger(arena.allocator(), self, event),
-                }
+                try games.scatty.events.trigger(arena.allocator(), self, event);
             } else return;
         }
     }
@@ -250,9 +244,7 @@ pub const Member = struct {
         var arena = std.heap.ArenaAllocator.init(self.app.allocator);
         defer arena.deinit();
 
-        switch (self.room.game.tag) {
-            .scatty => try games.scatty.events.trigger(arena.allocator(), self, "player-joined"),
-        }
+        try games.scatty.events.trigger(arena.allocator(), self, "player-joined");
     }
 
     pub fn onLeftEvent(self: *Member) !void {
@@ -265,9 +257,7 @@ pub const Member = struct {
             if (new_host) |host| rendering.msgGame(self.room, host, arena.allocator()) catch {};
         }
 
-        switch (self.room.game.tag) {
-            .scatty => try games.scatty.events.trigger(arena.allocator(), self, "player-left"),
-        }
+        try games.scatty.events.trigger(arena.allocator(), self, "player-left");
     }
 
     pub fn urn(self: *Member) Urn {
@@ -366,9 +356,11 @@ pub fn start(allocator: Allocator, app: *App) !httpz.Server(*App) {
     router.get("/", rendering.getIndex, .{});
     router.get("/rooms", rendering.getRooms, .{});
     router.get("/join", rendering.getJoin, .{});
+    router.get("/create", rendering.getCreate, .{});
     router.get("/ws", rendering.getWebsocket, .{});
     // Post Requests
-    router.post("/join", rendering.postJoin, .{});
+    router.post("/member", rendering.postMember, .{});
+    router.post("/room", rendering.postRoom, .{});
 
     std.debug.print("Listening http://localhost:{d}/\n", .{server_port});
 

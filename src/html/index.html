@@ -10,6 +10,7 @@
     <body>
         <div id="page">
             <h1>Rooms</h1>
+            <button hx-get="/create" hx-swap="outerHTML">Create</button>
             <div id="room-list" hx-trigger="load once" hx-get="/rooms" hx-target="this" hx-swap="beforeend"></div>
         </div>
     </body>

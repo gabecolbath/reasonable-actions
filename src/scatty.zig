@@ -10,6 +10,9 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const List = std.ArrayList;
 const Map = std.AutoArrayHashMapUnmanaged;
 const Uuid = uuid.Uuid;
+const EventHandler = server.EventHandler;
+const Room = server.Room;
+const Member = server.Member;
 
 const Category = []const u8;
 const Answer = []const u8;
@@ -56,7 +59,7 @@ pub const Player = struct {
         player: *Player,
         started: bool = false,
         score: i16 = 0,
-        answers: .{},
+        answers: List(Answer) = .{},
         votes: List(Map(Id, Vote)) = .{},
 
         pub fn init(allocator: Allocator, player: *Player) Round {
@@ -119,9 +122,10 @@ pub const Game = struct {
     state: State = .{},
     opts: Options = .{},
 
-    pub fn init(allocator: Allocator) Game {
+    pub fn init(allocator: Allocator, opts: Options) Game {
         return Game{
             .arena = ArenaAllocator.init(allocator),
+            .opts = opts,
         };
     }
 
@@ -268,3 +272,22 @@ pub const Game = struct {
     };
 
 };
+
+pub const events = EventHandler.init(.{
+    .{ "start", &onStart },
+    .{ "player-joined", &onPlayerJoined },
+    .{ "player-left", &onPlayerLeft },
+});
+
+fn onStart(_: Allocator, _: *Room, member: *Member) !void {
+    std.debug.print("Start event was triggered by {s}.\n", .{member.name});
+}
+
+fn onPlayerJoined(arena: Allocator, room: *Room, member: *Member) !void {
+    try rendering.msgGame(room, member, arena);
+    try rendering.msgMemberNames(room, member, arena);
+}
+
+fn onPlayerLeft(arena: Allocator, room: *Room, member: *Member) !void {
+    try rendering.msgMemberNames(room, member, arena);
+}

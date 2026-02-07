@@ -18,7 +18,7 @@ pub fn main() !void {
     const test_room_name_template = "test_room_{d}";
 
     for (0..10) |index| {
-        const test_game = try scatty.Game.init(game_arena.allocator(), .{});
+        const test_game = scatty.Game.init(game_arena.allocator(), .{});
 
         const test_room_ctx = server.Room.Context{
             .app = &app,

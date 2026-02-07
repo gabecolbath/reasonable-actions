@@ -71,6 +71,12 @@ pub fn getJoin(_: *App, req: *Request, res: *Response) !void {
     res.body = join_form_html;
 }
 
+pub fn getCreate(_: *App, _: *Request, res: *Response) !void {
+    const room_form_html = @embedFile("html/room-form.html");
+
+    res.body = room_form_html;
+}
+
 pub fn getWebsocket(app: *App, req: *Request, res: *Response) !void {
     const query = try req.query();
     const room_urn = query.get("room") orelse return errorMissingQuery(res, "room");
@@ -82,7 +88,7 @@ pub fn getWebsocket(app: *App, req: *Request, res: *Response) !void {
     const ctx = Member.Context{
         .app = app,
         .room = room,
-        .player = try Player.init(&room.game, name),
+        .player = Player.init(app.allocator, &room.game),
         .name = name,
     };
 
@@ -90,7 +96,7 @@ pub fn getWebsocket(app: *App, req: *Request, res: *Response) !void {
     if (!connected) return errorWebsocketNotConnected(res);
 }
 
-pub fn postJoin(_: *App, req: *Request, res: *Response) !void {
+pub fn postMember(_: *App, req: *Request, res: *Response) !void {
     const query = try req.query();
     const room_urn = query.get("room") orelse return errorMissingQuery(res, "room");
 
@@ -104,6 +110,30 @@ pub fn postJoin(_: *App, req: *Request, res: *Response) !void {
     });
 
     res.body = websocket_html;
+}
+
+pub fn postRoom(app: *App, req: *Request, res: *Response) !void {
+    const form = try req.formData();
+    const name =form.get("name") orelse return errorMissingFormEntry(res, "name");
+
+    const ctx = Room.Context{
+        .app = app,
+        .game = Game.init(app.allocator, .{}),
+        .name = name,
+    };
+
+    const room = try Room.new(&ctx);
+
+    const room_card_template = @embedFile("html/room-card.html");
+    const create_button_html = "<button hx-get='/create' hx-swap='outerHTML' hx-swap-oob='outerHTML:#room-form'>Create</button>";
+    const room_card_html = try std.fmt.allocPrint(res.arena, room_card_template, .{
+        room.urn(),
+        room.name,
+    });
+
+    const res_writer = res.writer();
+    try res_writer.writeAll(room_card_html);
+    try res_writer.writeAll(create_button_html);
 }
 
 pub fn msgGame(room: *Room, member: *Member, arena: Allocator) !void {

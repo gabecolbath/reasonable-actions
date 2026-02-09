@@ -1,7 +1,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const uuid = @import("uuid");
-const rendering = @import("rendering.zig");
+const frontend = @import("frontend.zig");
 const websocket = httpz.websocket;
 const json = std.json;
 const games = struct {
@@ -254,7 +254,7 @@ pub const Member = struct {
         if (self.is_host) {
             self.is_host = false;
             const new_host = self.room.assignHostTo(.first_available);
-            if (new_host) |host| rendering.msgGame(self.room, host, arena.allocator()) catch {};
+            if (new_host) |host| frontend.msg.game(arena.allocator(), host) catch {};
         }
 
         try games.scatty.events.trigger(arena.allocator(), self, "player-left");
@@ -353,14 +353,14 @@ pub fn start(allocator: Allocator, app: *App) !httpz.Server(*App) {
 
     var router = try server.router(.{});
     // Get Requests
-    router.get("/", rendering.getIndex, .{});
-    router.get("/rooms", rendering.getRooms, .{});
-    router.get("/join", rendering.getJoin, .{});
-    router.get("/create", rendering.getCreate, .{});
-    router.get("/ws", rendering.getWebsocket, .{});
+    router.get("/", frontend.get.@"/", .{});
+    router.get("/rooms", frontend.get.@"/rooms", .{});
+    router.get("/join", frontend.get.@"/join", .{});
+    router.get("/create", frontend.get.@"/create", .{});
+    router.get("/ws", frontend.get.@"/ws", .{});
     // Post Requests
-    router.post("/member", rendering.postMember, .{});
-    router.post("/room", rendering.postRoom, .{});
+    router.post("/member", frontend.post.@"/member", .{});
+    router.post("/room", frontend.post.@"/room", .{});
 
     std.debug.print("Listening http://localhost:{d}/\n", .{server_port});
 

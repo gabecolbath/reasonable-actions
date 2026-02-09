@@ -1,6 +1,7 @@
 const std = @import("std");
 const server =  @import("server.zig");
 const rendering = @import("rendering.zig");
+const frontend = @import("frontend.zig");
 const uuid = @import("uuid");
 
 const random = std.crypto.random;
@@ -283,11 +284,11 @@ fn onStart(_: Allocator, _: *Room, member: *Member) !void {
     std.debug.print("Start event was triggered by {s}.\n", .{member.name});
 }
 
-fn onPlayerJoined(arena: Allocator, room: *Room, member: *Member) !void {
-    try rendering.msgGame(room, member, arena);
-    try rendering.msgMemberNames(room, member, arena);
+fn onPlayerJoined(arena: Allocator, _: *Room, member: *Member) !void {
+    try frontend.msg.game(arena, member);
+    try frontend.msg.memberNames(arena, member);
 }
 
-fn onPlayerLeft(arena: Allocator, room: *Room, member: *Member) !void {
-    try rendering.msgMemberNames(room, member, arena);
+fn onPlayerLeft(arena: Allocator, _: *Room, member: *Member) !void {
+    try frontend.msg.memberNames(arena, member);
 }

@@ -31,6 +31,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const zigomponent_dep = b.dependency("zigomponents", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -52,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "httpz", .module = httpz_dep.module("httpz") },
             .{ .name = "uuid", .module = uuid_dep.module("uuid") },
+            .{ .name = "zigomponents", .module = zigomponent_dep.module("zigomponents") },
         },
     });
 
@@ -94,6 +100,7 @@ pub fn build(b: *std.Build) void {
                 // importing modules from different packages).
                 .{ .name = "httpz", .module = httpz_dep.module("httpz") },
                 .{ .name = "uuid", .module = uuid_dep.module("uuid") },
+                .{ .name = "zigomponents", .module = zigomponent_dep.module("zigomponents") },
             },
         }),
     });

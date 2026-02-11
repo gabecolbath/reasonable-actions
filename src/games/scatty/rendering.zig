@@ -62,6 +62,7 @@ const Hx = struct {
     fn swap(value: []const u8) Node { return Attr("hx-swap", value); }
     fn swap_oob(value: []const u8) Node { return Attr("hx-swap-oob", value); }
     fn vals(value: []const u8) Node { return Attr("hx-vals", value); }
+    fn include(value: []const u8) Node { return Attr("hx-include", value); }
 };
 
 const Ws = struct {
@@ -88,7 +89,7 @@ const Custom = struct {
         \\
         \\  if (remaining <= 0) {{
         \\    clearInterval(timer);
-        \\    htmx.trigger("#timer", "timer:done");
+        \\    htmx.trigger("#answering-form", "submit");
         \\  }}
         \\}}, 1000);
         , .{answering_time_limit});
@@ -96,10 +97,6 @@ const Custom = struct {
         return elem.Raw(try render(arena, ToNode(&.{
             Div(&.{
                 Id("timer"),
-
-                Hx.trigger("timer:done"),
-                Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/player-answered" } })),
-                Ws.send,
 
                 Span(&.{
                     Id("time"),
@@ -124,6 +121,9 @@ pub fn answeringScene(arena: Allocator, answering_time_limit: u8) ![]const u8 {
             Form(&.{
                 Id("answering-form"),
                 Style("display: flex; flex-direction: column;"),
+
+                Hx.trigger("submit"),
+                Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/player-answered" } })),
 
                 Ws.send,
             }),
@@ -161,15 +161,6 @@ pub fn answerInput(arena: Allocator, category_idx: u8, category: []const u8) ![]
     }));
 }
 
-pub fn votingScene(arena: Allocator, game: *scatty.Game) ![]const u8 {
-    const category_idx = switch (game.state.scene) {
-        .vote => |data| data.category,
-        else => 0,
-    };
-
-    const category = game.round.categories.items[category_idx];
-
-    return try render(arena, ToNode(&.{
-
-    }));
-}
+// pub fn votingScene(_: Allocator, _: *scatty.Game) ![]const u8 {
+//     // TODO
+// }

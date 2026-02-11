@@ -31,13 +31,6 @@ pub fn answering(arena: Allocator, src: *Member) !void {
     }
 }
 
-pub fn voting(arena: Allocator, src: *Member) !void {
-    const game = &src.room.game;
-    const player = &src.player;
-
-    game.state.scene = .{ .vote = .{ .category = 0 } };
-
-    for (src.room.members.values()) |member| {
-        
-    }
+pub fn voting(_: Allocator, _: *Member) !void {
+    // TODO
 }

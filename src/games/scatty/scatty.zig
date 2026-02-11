@@ -75,7 +75,7 @@ pub const Player = struct {
             try self.answers.ensureTotalCapacity(self.arena.allocator(), self.player.game.opts.num_categories);
             try self.votes.ensureTotalCapacity(self.arena.allocator(), self.player.game.opts.num_categories);
 
-            for (self.answers.items) |_| self.answers.appendAssumeCapacity(null);
+            for (self.answers.items) |*answer| answer.* = null;
 
             self.started = true;
         }
@@ -136,7 +136,7 @@ pub const Game = struct {
     }
 
     pub fn join(self: *Game, player: *Player) !void {
-        self.players.put(self.arena.allocator(), player.id, player);
+        try self.players.put(self.arena.allocator(), player.id, player);
     }
 
     pub fn kick(self: *Game, player: *Player) void {

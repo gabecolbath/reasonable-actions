@@ -1,51 +1,78 @@
 const std = @import("std");
 const scatty = @import("scatty.zig");
 const server = @import("../../server.zig");
-const rendering = @import("../../rendering.zig");
-const frontend = @import("../../frontend.zig");
 
+// std =========================================================================
 const Allocator = std.mem.Allocator;
+// server ======================================================================
 const Room = server.Room;
 const Member = server.Member;
-const EventHandler = server.EventHandler;
-const Event = server.Event;
+// scatty ======================================================================
 const Game = scatty.Game;
 const Player = scatty.Player;
 
-pub const handler = EventHandler.init(.{
+const Event = server.events.Event;
+const Source = server.events.Source;
+const Context = server.events.Context;
+const Handler = server.events.Handler;
+const Parser = server.events.Parser;
+const Queue = server.events.Queue;
+
+pub const handler = Handler.init(.{
     .{ "start", &onStart },
     .{ "player-joined", &onPlayerJoined },
     .{ "player-left", &onPlayerLeft },
     .{ "player-answered", &onPlayerAnswered },
 });
 
-pub fn onStart(arena: Allocator, src: *EventHandler.Source, _: []const u8) !void {
+pub fn onStart(arena: Allocator, ctx: *const Context) !void {
+    const src = ctx.src;
+
     try src.room.game.start();
     try scatty.frontend.answering(arena, src);
 }
 
-pub fn onPlayerJoined(arena: Allocator, src: *EventHandler.Source, _: []const u8) !void {
-    try frontend.msg.newGame(arena, src);
-    try frontend.msg.updateNames(arena, src);
+pub fn onPlayerJoined(arena: Allocator, ctx: *const Context) !void {
+    const src = ctx.src;
+
+    try server.frontend.msg.newGame(arena, src);
+    try server.frontend.msg.updateNames(arena, src);
     try src.room.game.join(&src.player);
 }
 
-pub fn onPlayerLeft(arena: Allocator, src: *EventHandler.Source, _: []const u8) !void {
-    try frontend.msg.updateNames(arena, src);
-    try src.room.game.kick(&src.player);
+pub fn onPlayerLeft(arena: Allocator, ctx: *const Context) !void {
+    const src = ctx.src;
+
+    try server.frontend.msg.updateNames(arena, src);
+    src.room.game.kick(&src.player);
 }
 
-pub fn onPlayerAnswered(arena: Allocator, src: *EventHandler.Source, msg: []const u8) !void {
-    std.debug.print("Player - {s} submitted their answers!\n", .{src.name});
+pub fn onPlayerAnswered(arena: Allocator, ctx: *const Context) !void {
+    const src = ctx.src;
+    const game = &src.room.game;
+    // const player = &src.player;
+
     src.room.queue.done(src);
 
-    update_answers: {
-        const form = try handler.form(arena, msg, &.{ .{ .list = .{ .name = "answer", .limit = src.room.game.opts.num_categories } } });
-        const values = form.get("answer") orelse break :update_answers;
-        const answers = if (values == .list) values.list else break :update_answers;
+    std.debug.print("\n\nPlayer answered event triggered with msg: \n {s} \n\n", .{
+        if (ctx.msg) |msg| msg.raw else @as([]const u8, "-- --"),
+    });
 
-        for (0.., answers) |idx, answer| {
-            src.player.round.answers.items[idx] = answer;
+    update_answers: {
+        const answers = Parser.list(arena, ctx, .{
+            .list_name = "answer",
+            .include_missing = true,
+            .num_vals_limit = game.opts.num_categories,
+        }) catch break :update_answers;
+
+        std.debug.print("Answers from {s}:\n", .{src.name});
+        for (0..answers.len) |category| {
+            if (answers[category]) |answer| {
+                std.debug.print("\t{d}. {s}\n", .{
+                    category,
+                    if (Parser.string(answer)) |str| str else @as([]const u8, "-- --"),
+                });
+            }
         }
     }
 

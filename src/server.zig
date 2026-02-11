@@ -1,12 +1,17 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const uuid = @import("uuid");
-const frontend = @import("frontend.zig");
 const websocket = httpz.websocket;
 const json = std.json;
 const games = struct {
-    const scatty = @import("scatty.zig");
+    const scatty = struct {
+        const game = @import("games/scatty/scatty.zig");
+        const events = @import("games/scatty/events.zig");
+    };
 };
+
+pub const frontend = @import("frontend.zig");
+pub const rendering = @import("rendering.zig");
 
 const assert = std.debug.assert;
 
@@ -21,7 +26,8 @@ const Uuid = uuid.Uuid;
 const Urn = uuid.urn.Urn;
 const Map = std.AutoArrayHashMapUnmanaged;
 const List = std.ArrayList;
-const StringMap = std.StaticStringMap;
+const StaticStringMap = std.StaticStringMap;
+const StringMap = std.StringHashMap;
 
 // httpz =======================================================================
 const Request = httpz.Request;
@@ -31,8 +37,8 @@ const Response = httpz.Response;
 const Conn = websocket.Conn;
 
 // scatty ======================================================================
-const Game = games.scatty.Game;
-const Player = games.scatty.Player;
+const Game = games.scatty.game.Game;
+const Player = games.scatty.game.Player;
 
 
 pub const ServerError = error {
@@ -49,7 +55,7 @@ pub const EventError = error {
     UnknownEvent,
 };
 
-pub const Event = *const fn (arena: Allocator, room: *Room, member: *Member) anyerror!void;
+pub const Event = *const fn (arena: Allocator, src: *EventHandler.Source, msg: []const u8) anyerror!void;
 
 pub const Room = struct {
     app: *App,
@@ -57,6 +63,7 @@ pub const Room = struct {
     members: Map(Uuid, *Member),
     game: Game,
     name: []const u8,
+    queue: EventHandler.Queue = .{},
 
     pub const Context = struct {
         app: *App,
@@ -187,7 +194,7 @@ pub const Member = struct {
     }
 
     pub fn deinit(self: *Member) void {
-        // self.player.deinit(); TODO
+        // self.player.deinit();
         self.app.allocator.free(self.name);
     }
 
@@ -214,18 +221,18 @@ pub const Member = struct {
             const level = tok.next() orelse return;
             if (std.mem.eql(u8, level, "game")) {
                 const event = tok.next() orelse return;
-                try games.scatty.events.trigger(arena.allocator(), self, event);
+                try games.scatty.events.handler.trigger(arena.allocator(), self, msg, event);
             } else return;
         }
     }
 
-    pub fn clientClose(self: *Member, _: []const u8) !void {
+    pub fn clientClose(self: *Member, msg: []const u8) !void {
         if (!self.closed) {
             defer self.closed = true;
             self.app.unregisterMember(self);
             self.deinit();
 
-            try self.onLeftEvent();
+            try self.onLeftEvent(msg);
         }
     }
 
@@ -236,28 +243,28 @@ pub const Member = struct {
             self.deinit();
             self.conn.close(.{}) catch {};
 
-            self.onLeftEvent() catch {};
+            self.onLeftEvent("") catch {};
         }
     }
 
-    pub fn onJoinedEvent(self: *Member) !void {
+    pub fn onJoinedEvent(self: *Member, msg: []const u8) !void {
         var arena = std.heap.ArenaAllocator.init(self.app.allocator);
         defer arena.deinit();
 
-        try games.scatty.events.trigger(arena.allocator(), self, "player-joined");
+        try games.scatty.events.handler.trigger(arena.allocator(), self, msg, "player-joined");
     }
 
-    pub fn onLeftEvent(self: *Member) !void {
+    pub fn onLeftEvent(self: *Member, msg: []const u8) !void {
         var arena = std.heap.ArenaAllocator.init(self.app.allocator);
         defer arena.deinit();
 
         if (self.is_host) {
             self.is_host = false;
             const new_host = self.room.assignHostTo(.first_available);
-            if (new_host) |host| frontend.msg.game(arena.allocator(), host) catch {};
+            if (new_host) |host| frontend.msg.newGame(arena.allocator(), host) catch {};
         }
 
-        try games.scatty.events.trigger(arena.allocator(), self, "player-left");
+        try games.scatty.events.handler.trigger(arena.allocator(), self, msg, "player-left");
     }
 
     pub fn urn(self: *Member) Urn {
@@ -272,19 +279,106 @@ pub const Member = struct {
 };
 
 pub const EventHandler = struct {
-    events: StringMap(Event),
+    events: StaticStringMap(Event),
 
-    pub const Source = *Member;
+    pub const Source = Member;
+    pub const Queue = struct {
+        clients: Map(Uuid, *Source) = .{},
+
+        pub fn reset(self: *Queue) void {
+            self.clients.clearRetainingCapacity();
+        }
+
+        pub fn wait(self: *Queue, src: *Source) !void {
+            try self.clients.put(src.room.game.arena.allocator(), src.id, src);
+        }
+
+        pub fn done(self: *Queue, src: *Source) void {
+            _ = self.clients.swapRemove(src.id);
+        }
+
+        pub fn waiting(self: *Queue, src: *Source) bool {
+            return self.clients.contains(src.id);
+        }
+
+        pub fn allWaiting(self: *Queue, src: *Source) bool {
+            for (src.room.members.values()) |member| {
+                if (!self.waiting(member)) return false;
+            } else return true;
+        }
+
+        pub fn allDone(self: *Queue, src: *Source) bool {
+            for (src.room.members.values()) |member| {
+                if (self.waiting(member)) return false;
+            } else return true;
+        }
+    };
+
+    pub const Form = struct {
+        pub const Name = union(enum) {
+            list: struct { name: []const u8, limit: ?usize = null },
+            item: []const u8,
+        };
+        pub const Value = union(enum) {
+            list: []?[]const u8,
+            item: []const u8,
+        };
+    };
 
     pub fn init(comptime entries: anytype) EventHandler {
         return EventHandler{
-            .events = StringMap(Event).initComptime(entries),
+            .events = StaticStringMap(Event).initComptime(entries),
         };
     }
 
-    pub fn trigger(self: *const EventHandler, arena: Allocator, source: Source, event: []const u8) !void {
+    pub fn trigger(self: *const EventHandler, arena: Allocator, src: *Source, msg: []const u8, event: []const u8) !void {
         const respond = self.events.get(event) orelse return EventError.UnknownEvent;
-        try respond(arena, source.room, source);
+        try respond(arena, src, msg);
+    }
+
+    pub fn form(_: *EventHandler, arena: Allocator, msg: []const u8, names: []const Form.Name) !StringMap(Form.Value) {
+        const root: std.json.Value = (try std.json.parseFromSlice(json.Value, arena, msg, .{})).value;
+        const obj = if (root == .object) root.object else return;
+
+        var map = StringMap(Form.Value).init(arena);
+        for (names) |name| {
+            switch (name) {
+                .item => |str| {
+                    const val = obj.get(str) orelse continue;
+                    map.put(name, .{ .item = val }) catch continue;
+                },
+                .list => |data| {
+                    var list = List(?[]const u8){};
+                    errdefer list.deinit(arena);
+
+                    var buf: [32]u8 = undefined;
+
+                    if (data.limit) |limit| {
+                        for (0..limit) |idx| {
+                            const indexed = std.fmt.bufPrint(&buf, "{s}[{d}]", .{ data.name, idx }) catch continue;
+                            const val = obj.get(indexed) orelse {
+                                try list.append(arena, null);
+                                continue;
+                            };
+
+                            try list.append(arena, val);
+                        }
+                    } else {
+                        var idx: usize = 0;
+                        var indexed = std.fmt.bufPrint(&buf, "{s}[{d}]", .{ data.name, idx }) catch continue;
+                        while (obj.get(indexed)) |val| : (idx += 1) {
+                            list.append(arena, val) catch break;
+                            indexed = try std.fmt.bufPrint(&buf, "{s}[{d}]", .{ data.name, idx });
+                        }
+                    }
+
+                    const items = list.toOwnedSlice(arena) catch continue;
+                    map.put(name, .{ .list = items });
+                },
+            }
+        }
+
+        return map;
     }
 };
 

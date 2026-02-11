@@ -29,6 +29,8 @@ const Button = elem.Button;
 const Label = elem.LabElement;
 const Input = elem.Input;
 const A = elem.A;
+const Span = elem.Span;
+fn Hr() Node { return Elem("hr", null); }
 
 const Src = attr.Src;
 const Integrity = attr.Integrity;
@@ -40,10 +42,12 @@ const Name = attr.Name;
 const Value = attr.Value;
 const Class = attr.Class;
 const Href = attr.Href;
+const Style = attr.Style;
 fn CrossOrigin(value: []const u8) Node { return Attr("crossorigin", value); }
 
 const ToNode = elem.ToNode;
 const Node = zigomponents.Node;
+const RawElem = zigomponents.el.Raw;
 const Elem = zigomponents.wrappers.El;
 const Attr = zigomponents.wrappers.Attr;
 
@@ -77,10 +81,12 @@ pub fn vals(arena: std.mem.Allocator, items: []const struct { name: []const u8, 
     var str = std.ArrayList(u8){};
     var val_buf: [256]u8 = undefined;
 
+    try str.append(arena, '{');
     for (items) |item| {
-        const val = try std.fmt.bufPrint(&val_buf, "'{s}':'{s}'", .{ item.name, item.value });
+        const val = try std.fmt.bufPrint(&val_buf, "&quot;{s}&quot;:&quot;{s}&quot;,", .{ item.name, item.value });
         try str.appendSlice(arena, val);
-    }
+    } else _ = str.pop();
+    try str.append(arena, '}');
 
     return str.items;
 }
@@ -104,6 +110,7 @@ pub const room_list = Div(&.{
 
 pub const empty_member_list = Div(&.{
     Id("member-list"),
+    Style("display: flex; flex-direction: column;"),
 
     Hx.swap_oob("outerHTML:#member-list"),
 });
@@ -111,6 +118,7 @@ pub const empty_member_list = Div(&.{
 // Dynamic
 pub fn index(arena: Allocator) ![]const u8 {
     return try render(arena, elem.ToNode(&.{
+        RawElem("<!DOCTYPE html>"),
         Html(&.{
             Head(&.{
                 Title("Reasonable Actions"),
@@ -146,6 +154,7 @@ pub fn game(arena: Allocator, room: *Room, member: *Member) ![]const u8 {
             Hx.swap_oob("innerHTML:#websocket"),
 
             H4(&.{ Text(try template(arena, "{s} | {s}", .{ room.name, member.name })) }),
+            Hr(),
             Div(&.{
                 Id("dashboard"),
 
@@ -160,9 +169,12 @@ pub fn game(arena: Allocator, room: *Room, member: *Member) ![]const u8 {
                     break :member Text("Waiting for host to start the game...");
                 },
             }),
+            Hr(),
             Div(&.{
                 Id("member-list"),
+                Style("display: flex; flex-direction: column;"),
             }),
+            Hr(),
             P(&.{ Text(&room.urn()) }),
         }),
     }));
@@ -198,16 +210,18 @@ pub fn memberForm(arena: Allocator, room_urn: []const u8) ![]const u8 {
 pub fn memberName(arena: Allocator, member: *Member) ![]const u8 {
     return try render(arena, elem.ToNode(&.{
         Div(&.{
-            Class("member-name"),
-
             Hx.swap_oob("beforeend:#member-list"),
 
-            if (member.is_host) host: {
-                break :host Text(try template(arena, "{s} ♔", .{member.name}));
-            } else member: {
-                break :member Text(member.name);
-            },
-        })
+            Span(&.{
+                Class("member-name"),
+
+                if (member.is_host) host: {
+                    break :host Text(try template(arena, "{s} ♔", .{member.name}));
+                } else member: {
+                    break :member Text(member.name);
+                },
+            }),
+        }),
     }));
 }
 

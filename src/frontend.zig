@@ -5,7 +5,7 @@ const server = @import("server.zig");
 const rendering = @import("rendering.zig");
 
 const games = struct {
-    const scatty = @import("scatty.zig");
+    const scatty = @import("games/scatty/scatty.zig");
 };
 
 const ServerError = server.ServerError;
@@ -108,11 +108,11 @@ pub const post = struct {
 };
 
 pub const msg = struct {
-    pub fn game(arena: Allocator, source: *Member) !void {
+    pub fn newGame(arena: Allocator, source: *Member) !void {
         try source.conn.write(try rendering.game(arena, source.room, source));
     }
 
-    pub fn memberNames(arena: Allocator, source: *Member) !void {
+    pub fn updateNames(arena: Allocator, source: *Member) !void {
 
         const empty_list = try rendering.render(arena, rendering.empty_member_list);
         var list: List(u8) = .{};

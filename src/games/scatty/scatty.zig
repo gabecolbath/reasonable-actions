@@ -41,10 +41,8 @@ pub const Player = struct {
     }
 
     pub fn start(self: *Player) !void {
-        if (!self.game.state.started) {
-            self.round = Round.init(self.arena.allocator(), self);
-            try self.round.start();
-        }
+        self.round = Round.init(self.arena.allocator(), self);
+        try self.round.start();
     }
 
     pub fn restart(self: *Player) !void {
@@ -75,7 +73,7 @@ pub const Player = struct {
             try self.answers.ensureTotalCapacity(self.arena.allocator(), self.player.game.opts.num_categories);
             try self.votes.ensureTotalCapacity(self.arena.allocator(), self.player.game.opts.num_categories);
 
-            for (self.answers.items) |*answer| answer.* = null;
+            for (0..self.player.game.opts.num_categories) |_| self.answers.appendAssumeCapacity(null);
 
             self.started = true;
         }
@@ -147,10 +145,11 @@ pub const Game = struct {
         if (!self.state.started) {
             self.round = Round.init(self.arena.allocator(), self);
             try self.round.start();
+
+            for (self.players.values()) |player| try player.start();
+
             self.state.started = true;
         }
-
-        for (self.players.values()) |player| try player.start();
     }
 
     pub fn restart(self: *Game) !void {

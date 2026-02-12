@@ -11,6 +11,9 @@ const attr = zigomponents.attr;
 const Allocator = std.mem.Allocator;
 const Room = server.Room;
 const Member = server.Member;
+const Source = scatty.events.Source;
+const Game = scatty.Game;
+const Player = scatty.Player;
 
 const Html = elem.Html;
 const Head = elem.Head;
@@ -31,6 +34,8 @@ const Label = elem.LabElement;
 const Input = elem.Input;
 const A = elem.A;
 const Span = elem.Span;
+const FieldSet = elem.Fieldset;
+fn Legend(children: ?[]const Node) Node { return Elem("legend", children); }
 
 const Src = attr.Src;
 const Integrity = attr.Integrity;
@@ -45,6 +50,8 @@ const Href = attr.Href;
 const MinLength = attr.MinLength;
 const MaxLength = attr.MaxLength;
 const Style = attr.Style;
+const Required = attr.Required;
+const Disabled = attr.Disabled;
 fn CrossOrigin(value: []const u8) Node { return Attr("crossorigin", value); }
 fn Size(value: []const u8) Node { return Attr("size", value); }
 
@@ -112,20 +119,22 @@ const Custom = struct {
 pub fn answeringScene(arena: Allocator, answering_time_limit: u8) ![]const u8 {
     return try render(arena, ToNode(&.{
         Div(&.{
-            Id("answering"),
-            Style("display: flex; flex-direction: column;"),
+            Hx.swap_oob("innerHTML:#game"),
 
-            Hx.swap_oob("outerHTML:#dashboard"),
-
-            try Custom.answerTimer(arena, answering_time_limit),
-            Form(&.{
-                Id("answering-form"),
+            Div(&.{
+                Id("answering"),
                 Style("display: flex; flex-direction: column;"),
 
-                Hx.trigger("submit"),
-                Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/player-answered" } })),
+                try Custom.answerTimer(arena, answering_time_limit),
+                Form(&.{
+                    Id("answering-form"),
+                    Style("display: flex; flex-direction: column;"),
 
-                Ws.send,
+                    Hx.trigger("submit"),
+                    Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/player-answered" } })),
+
+                    Ws.send,
+                }),
             }),
         }),
     }));
@@ -161,6 +170,60 @@ pub fn answerInput(arena: Allocator, category_idx: u8, category: []const u8) ![]
     }));
 }
 
-// pub fn votingScene(_: Allocator, _: *scatty.Game) ![]const u8 {
-//     // TODO
-// }
+pub fn votingScene(arena: Allocator, src: *Source) ![]const u8 {
+    const game = &src.room.game;
+    const index: usize = switch (game.state.scene) {
+        .vote => |data| @intCast(data.category),
+        else => 0,
+    };
+    const category = game.round.categories.items[index];
+    const heading = try template(arena, "{d}. {s}", .{ index + 1, category });
+
+    return try render(arena, ToNode(&.{
+        Div(&.{
+            Hx.swap_oob("innerHTML:#game"),
+
+            Div(&.{
+                Id("voting"),
+
+                H4(&.{ Text(heading) }),
+                Form(&.{
+                    Id("answers-form"),
+
+                    FieldSet(&.{
+                        Id("answers-form-fields"),
+
+                        Legend(&.{ Text("Answers") }),
+                    })
+                }),
+            }),
+        }),
+    }));
+}
+
+pub fn votingAnswersInput(arena: Allocator, index: usize, src: *Member, member: *Member) !?[]const u8 {
+    const answer = member.player.round.answers.items[index] orelse return null;
+    const urn = uuid.urn.serialize(member.id);
+
+    return try render(arena, ToNode(&.{
+        Div(&.{
+            Hx.swap_oob("beforeend:#answers-form-fields"),
+
+            Div(&.{
+                Class("answers-form-input"),
+                Style("display: flex; flex-direction: row;"),
+
+                Input(&.{
+                    Type("checkbox"),
+                    Name(&urn),
+                    if (src.id == member.id) src_is_member: {
+                        break :src_is_member Disabled();
+                    } else src_is_not_member: {
+                            break :src_is_not_member Required();
+                    },
+                }),
+                Span(&.{ Text(answer) }),
+            }),
+        }),
+    }));
+}

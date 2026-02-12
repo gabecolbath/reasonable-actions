@@ -149,25 +149,27 @@ pub fn index(arena: Allocator) ![]const u8 {
 pub fn game(arena: Allocator, room: *Room, member: *Member) ![]const u8 {
     return try render(arena, elem.ToNode(&.{
         Div(&.{
-            Id("game"),
-
             Hx.swap_oob("innerHTML:#websocket"),
 
             H4(&.{ Text(try template(arena, "{s} | {s}", .{ room.name, member.name })) }),
             Hr(),
             Div(&.{
-                Id("dashboard"),
+                Id("game"),
 
-                if (member.is_host) host: {
-                    break :host Button(&.{
-                        Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/start" } })),
-                        Ws.send,
+                Div(&.{
+                    Id("lobby"),
 
-                        Text("Start"),
-                    });
-                } else member: {
-                    break :member Text("Waiting for host to start the game...");
-                },
+                    if (member.is_host) host: {
+                        break :host Button(&.{
+                            Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/start" } })),
+                            Ws.send,
+
+                            Text("Start"),
+                        });
+                    } else member: {
+                            break :member Text("Waiting for host to start the game...");
+                        },
+                }),
             }),
             Hr(),
             Div(&.{

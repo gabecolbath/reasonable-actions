@@ -11,12 +11,12 @@ const Member = server.Member;
 const Game = scatty.Game;
 const Player = scatty.Player;
 
-const Event = server.events.Event;
-const Source = server.events.Source;
-const Context = server.events.Context;
-const Handler = server.events.Handler;
-const Parser = server.events.Parser;
-const Queue = server.events.Queue;
+pub const Event = server.events.Event;
+pub const Source = server.events.Source;
+pub const Context = server.events.Context;
+pub const Handler = server.events.Handler;
+pub const Parser = server.events.Parser;
+pub const Queue = server.events.Queue;
 
 pub const handler = Handler.init(.{
     .{ "start", &onStart },
@@ -50,28 +50,21 @@ pub fn onPlayerLeft(arena: Allocator, ctx: *const Context) !void {
 pub fn onPlayerAnswered(arena: Allocator, ctx: *const Context) !void {
     const src = ctx.src;
     const game = &src.room.game;
-    // const player = &src.player;
+    const player = &src.player;
 
     src.room.queue.done(src);
 
-    std.debug.print("\n\nPlayer answered event triggered with msg: \n {s} \n\n", .{
-        if (ctx.msg) |msg| msg.raw else @as([]const u8, "-- --"),
-    });
-
     update_answers: {
-        const answers = Parser.list(arena, ctx, .{
+        const form = Parser.list(arena, ctx, .{
             .list_name = "answer",
             .include_missing = true,
             .num_vals_limit = game.opts.num_categories,
         }) catch break :update_answers;
 
-        std.debug.print("Answers from {s}:\n", .{src.name});
-        for (0..answers.len) |category| {
-            if (answers[category]) |answer| {
-                std.debug.print("\t{d}. {s}\n", .{
-                    category,
-                    if (Parser.string(answer)) |str| str else @as([]const u8, "-- --"),
-                });
+        for (0..form.len) |index| {
+            if (form[index]) |value| {
+                const answer = Parser.string(value);
+                player.round.answers.items[index] = answer;
             }
         }
     }

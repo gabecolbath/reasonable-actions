@@ -9,6 +9,7 @@ const ServerError = server.ServerError;
 // std =========================================================================
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
+const Map = std.AutoArrayHashMapUnmanaged;
 // server ======================================================================
 const App = server.App;
 const Member = server.Member;
@@ -20,6 +21,13 @@ const Source = scatty.events.Source;
 // httpz =======================================================================
 const Request = httpz.Request;
 const Response = httpz.Response;
+// uuid ========================================================================
+const Uuid = uuid.Uuid;
+
+pub const Renderer = struct {
+    allocator: Allocator,
+    renders = Map(Uuid, List([]const u8)),
+};
 
 pub fn answering(arena: Allocator, src: *Source) !void {
     const game = &src.room.game;
@@ -37,7 +45,6 @@ pub fn answering(arena: Allocator, src: *Source) !void {
 
 pub fn voting(arena: Allocator, src: *Source) !void {
     const game = &src.room.game;
-
     const index: usize = get_and_set: {
         switch (game.state.scene) {
             .vote => |data| {
@@ -50,13 +57,22 @@ pub fn voting(arena: Allocator, src: *Source) !void {
             },
         }
     };
-
+    const no_answers = try scatty.rendering.votingNoAnswers(arena);
 
     for (src.room.members.values()) |member| {
-        member.conn.write(scatty.rendering.votingScene(arena, src) catch continue) catch continue;
+        member.conn.write(scatty.rendering.votingScene(arena, member) catch continue) catch continue;
+        var answer_count: u8 = @intCast(src.room.members.count());
         for (src.room.members.values()) |other_member| {
             const voting_answers_input = scatty.rendering.votingAnswersInput(arena, index, member, other_member) catch continue;
-            if (voting_answers_input) |html| member.conn.write(html) catch continue;
+            if (voting_answers_input) |html| {
+                member.conn.write(html) catch continue;
+            } else {
+                answer_count -= 1;
+            }
+        }
+
+        if (answer_count == 0) {
+            member.conn.write(no_answers) catch continue;
         }
     }
 }

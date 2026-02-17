@@ -71,10 +71,10 @@ pub const Parser = struct {
 
     pub fn list(arena: Allocator, ctx: *const Context, opts: ListOptions) ![]?Val {
         assert(opts.num_vals_limit < 100);
-        assert(opts.list_name.len < 32);
+        assert(opts.list_name.len < 64);
 
         const name = opts.list_name;
-        var buf: [32 + 4]u8 = undefined;
+        var buf: [64 + 4]u8 = undefined;
 
         if (opts.include_missing) {
             const result = try arena.alloc(?Val, opts.num_vals_limit);
@@ -137,6 +137,13 @@ pub const Parser = struct {
     pub fn string(val: json.Value) ?[]const u8 {
         switch (val) {
             .string => |str| return str,
+            else => return null,
+        }
+    }
+
+    pub fn conditional(val: json.Value) ?bool {
+        switch (val) {
+            .bool => |str| return str,
             else => return null,
         }
     }

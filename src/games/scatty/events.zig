@@ -23,6 +23,8 @@ pub const handler = Handler.init(.{
     .{ "player-joined", &onPlayerJoined },
     .{ "player-left", &onPlayerLeft },
     .{ "player-answered", &onPlayerAnswered },
+    .{ "next-voting", &onNextVoting },
+    .{ "player-voted", &onPlayerVoted },
 });
 
 pub fn onStart(arena: Allocator, ctx: *const Context) !void {
@@ -71,5 +73,36 @@ pub fn onPlayerAnswered(arena: Allocator, ctx: *const Context) !void {
 
     if (src.room.queue.allDone(src)) {
         try scatty.frontend.voting(arena, src);
+    }
+}
+
+pub fn onNextVoting(arena: Allocator, ctx: *const Context) !void {
+    for (ctx.src.room.members.values()) |member| {
+        switch (ctx.src.room.game.opts.scoring_method) {
+            .by_count => {
+                var count: i16 = 0;
+
+                for (member.player.round.votes.keys()) |id| {
+                    const vote = member.player.round.votes.get(id) orelse continue;
+                    count += if (vote) 1 else 0;
+                }
+
+                member.player.round.score += count;
+            },
+        }
+    }
+
+    try scatty.frontend.voting(arena, ctx.src);
+}
+
+pub fn onPlayerVoted(_: Allocator, ctx: *const Context) !void {
+    const room = ctx.src.room;
+
+    for (room.members.values()) |member| {
+        const urn = member.urn();
+        const val = Parser.item(ctx, urn) orelse continue;
+        const vote = Parser.conditional(val) orelse continue;
+
+        member.player.round.votes.putAssumeCapacity(ctx.src.id, vote);
     }
 }

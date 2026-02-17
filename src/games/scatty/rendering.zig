@@ -170,14 +170,36 @@ pub fn answerInput(arena: Allocator, category_idx: u8, category: []const u8) ![]
     }));
 }
 
-pub fn votingScene(arena: Allocator, src: *Source) ![]const u8 {
-    const game = &src.room.game;
+pub fn votingScene(arena: Allocator, member: *Source) ![]const u8 {
+    const game = &member.room.game;
     const index: usize = switch (game.state.scene) {
         .vote => |data| @intCast(data.category),
         else => 0,
     };
     const category = game.round.categories.items[index];
     const heading = try template(arena, "{d}. {s}", .{ index + 1, category });
+
+    const heading_node = condition: {
+        if (member.is_host) {
+            break :condition Div(&.{
+                Style("display: flex; flex-direction: row; justify-content: space-between"),
+
+                H4(&.{ Text(heading) }),
+                Button(&.{
+                    Type("button"),
+
+                    Hx.vals(try vals(arena, &.{ .{ .name = "event", .value = "game/next-voting" }})),
+                    Ws.send,
+
+                    Text("Next"),
+                }),
+            });
+        } else {
+            break :condition Div(&.{
+                H4(&.{ Text(heading) }),
+            });
+        }
+    };
 
     return try render(arena, ToNode(&.{
         Div(&.{
@@ -186,7 +208,7 @@ pub fn votingScene(arena: Allocator, src: *Source) ![]const u8 {
             Div(&.{
                 Id("voting"),
 
-                H4(&.{ Text(heading) }),
+                heading_node,
                 Form(&.{
                     Id("answers-form"),
 
@@ -225,5 +247,17 @@ pub fn votingAnswersInput(arena: Allocator, index: usize, src: *Member, member: 
                 Span(&.{ Text(answer) }),
             }),
         }),
+    }));
+}
+
+pub fn votingNoAnswers(arena: Allocator) ![]const u8 {
+    return try render(arena, ToNode(&.{
+        Div(&.{
+            Hx.swap_oob("innerHTML:#answers-form-fields"),
+
+            Div(&.{
+                Span(&.{ Text("No answers.") })
+            }),
+        })
     }));
 }

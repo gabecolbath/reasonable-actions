@@ -71,7 +71,7 @@ pub const Player = struct {
             errdefer self.deinit();
 
             try self.answers.ensureTotalCapacity(self.arena.allocator(), self.player.game.opts.num_categories);
-            try self.votes.ensureTotalCapacity(self.arena.allocator(), self.player.game.opts.num_categories);
+            try self.votes.ensureTotalCapacity(self.arena.allocator(), self.player.game.players.count());
 
             for (0..self.player.game.opts.num_categories) |_| self.answers.appendAssumeCapacity(null);
 
